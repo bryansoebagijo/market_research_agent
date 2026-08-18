@@ -15,7 +15,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 class Settings(BaseSettings):
     # ---------- Reasoning LLM ----------
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-flash-latest"
+    gemini_model: str = "gemini-3.6-flash"
 
     # ---------- Market data keys (optional) ----------
     twelve_data_api_key: str = ""

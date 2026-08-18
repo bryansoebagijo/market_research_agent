@@ -10,6 +10,7 @@ instead of a hand-rolled loop.
 from langgraph.graph import END, START, StateGraph
 
 from agent.nodes.planner import planner_node
+from agent.nodes.researcher import researcher_node
 from agent.state import AgentState
 
 
@@ -18,8 +19,10 @@ def build_graph():
     graph = StateGraph(AgentState)
 
     graph.add_node("planner", planner_node)
+    graph.add_node("researcher", researcher_node)
 
     graph.add_edge(START, "planner")
-    graph.add_edge("planner", END)
+    graph.add_edge("planner", "researcher")
+    graph.add_edge("researcher", END)
 
     return graph.compile()

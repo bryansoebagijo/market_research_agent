@@ -20,6 +20,11 @@ class SubQuestion(BaseModel):
         description="What kind of data answers it: 'price', 'technicals', "
         "'fundamentals', 'news', or 'macro'."
     )
+    tickers: list[str] = Field(
+        default_factory=list,
+        description="The specific ticker(s) this sub-question concerns (a subset of "
+        "the plan's tickers). Leave empty for general/macro questions.",
+    )
 
 
 class ResearchPlan(BaseModel):

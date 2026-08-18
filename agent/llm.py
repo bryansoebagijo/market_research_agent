@@ -25,3 +25,23 @@ def get_llm(temperature: float = 0.2) -> ChatGoogleGenerativeAI:
         google_api_key=settings.gemini_api_key,
         temperature=temperature,
     )
+
+
+def to_text(message) -> str:
+    """Extract plain text from an LLM reply.
+
+    Gemini 3.x returns `content` as a list of content blocks rather than a plain
+    string, so we normalize both shapes to a string.
+    """
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                parts.append(block.get("text", ""))
+        return "".join(parts)
+    return str(content)

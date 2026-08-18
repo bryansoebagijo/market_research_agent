@@ -21,19 +21,28 @@ def main() -> None:
     agent = build_graph()
 
     print(f"\nQuestion: {question}\n")
-    print("Planning research …\n")
+    print("Planning and researching … (this makes several API + LLM calls)\n")
 
     result = agent.invoke({"question": question})
     plan = result["plan"]
 
-    print("=" * 66)
+    print("=" * 70)
     print("RESEARCH PLAN")
-    print("=" * 66)
+    print("=" * 70)
     print(f"Tickers  : {', '.join(plan.tickers) or '(none detected)'}")
     print(f"Angle    : {plan.rationale}\n")
     for i, sq in enumerate(plan.subquestions, start=1):
-        print(f"  {i}. [{sq.focus}] {sq.question}")
-    print("=" * 66)
+        tk = f" ({', '.join(sq.tickers)})" if sq.tickers else ""
+        print(f"  {i}. [{sq.focus}]{tk} {sq.question}")
+
+    print("\n" + "=" * 70)
+    print("EVIDENCE GATHERED")
+    print("=" * 70)
+    for i, ev in enumerate(result.get("evidence", []), start=1):
+        print(f"\n[{i}] {ev['subquestion']}")
+        print(f"    → {ev['finding']}")
+        print(f"    source: {ev['source']}")
+    print("\n" + "=" * 70)
 
 
 if __name__ == "__main__":
