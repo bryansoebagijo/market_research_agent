@@ -1,0 +1,14 @@
+# --- Agent framework ---
+langgraph>=0.2.0              # graph-based stateful multi-agent orchestration
+langchain-core>=0.3.0        # message/tool primitives LangGraph builds on
+langchain-google-genai>=2.0.0  # Gemini chat model for LangChain/LangGraph
+
+# --- Tools / data sources (live markets + news + web) ---
+httpx>=0.27.0                # CoinGecko / Twelve Data / Alpha Vantage HTTP calls
+feedparser>=6.0.0            # market news RSS feeds
+ddgs>=6.0.0                  # keyless web search (DuckDuckGo)
+
+# --- Config / utils ---
+python-dotenv>=1.0.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
