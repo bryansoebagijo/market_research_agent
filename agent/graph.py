@@ -2,11 +2,11 @@
 Assemble the LangGraph agent.
 
     START → planner → researcher → critic ─┬─(gaps + under limit)→ researcher  (loop)
-                                           └─(complete OR limit)──→ END
+                                           └─(complete OR limit)──→ synthesizer → END
 
 The conditional edge after the critic is what makes this a real agent: it *decides*
-whether to research more or stop, based on the critic's verdict and a loop guard.
-(The Synthesizer will sit on the exit edge in the next milestone; for now "done" ends.)
+whether to research more or finish, based on the critic's verdict and a loop guard.
+When it finishes, the synthesizer writes the final cited report.
 """
 
 from langgraph.graph import END, START, StateGraph
@@ -15,6 +15,7 @@ from config import settings
 from agent.nodes.critic import critic_node
 from agent.nodes.planner import planner_node
 from agent.nodes.researcher import researcher_node
+from agent.nodes.synthesizer import synthesizer_node
 from agent.state import AgentState
 
 
@@ -38,6 +39,7 @@ def build_graph():
     graph.add_node("planner", planner_node)
     graph.add_node("researcher", researcher_node)
     graph.add_node("critic", critic_node)
+    graph.add_node("synthesizer", synthesizer_node)
 
     graph.add_edge(START, "planner")
     graph.add_edge("planner", "researcher")
@@ -45,7 +47,8 @@ def build_graph():
     graph.add_conditional_edges(
         "critic",
         route_after_critic,
-        {"research_more": "researcher", "done": END},
+        {"research_more": "researcher", "done": "synthesizer"},
     )
+    graph.add_edge("synthesizer", END)
 
     return graph.compile()

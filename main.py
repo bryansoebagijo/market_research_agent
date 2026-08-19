@@ -56,7 +56,12 @@ def main() -> None:
     print(f"Research passes : {result.get('loops', 1)}")
     print(f"Coverage OK?    : {result.get('complete')}")
     print(f"Assessment      : {result.get('critique', '(none)')}")
+
     print("\n" + "=" * 70)
+    print("REPORT")
+    print("=" * 70)
+    print(result.get("report", "(no report generated)"))
+    print("=" * 70)
 
 
 if __name__ == "__main__":
