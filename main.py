@@ -49,6 +49,13 @@ def main() -> None:
         print(f"\n[{i}] {ev['subquestion']}")
         print(f"    -> {ev['finding']}")
         print(f"    source: {ev['source']}")
+
+    print("\n" + "=" * 70)
+    print("CRITIC")
+    print("=" * 70)
+    print(f"Research passes : {result.get('loops', 1)}")
+    print(f"Coverage OK?    : {result.get('complete')}")
+    print(f"Assessment      : {result.get('critique', '(none)')}")
     print("\n" + "=" * 70)
 
 

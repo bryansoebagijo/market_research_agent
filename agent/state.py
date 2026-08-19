@@ -40,6 +40,22 @@ class ResearchPlan(BaseModel):
     rationale: str = Field(description="One sentence on the overall research angle.")
 
 
+class CriticVerdict(BaseModel):
+    """The critic's judgement of whether the evidence is good enough."""
+
+    complete: bool = Field(
+        description="True if the evidence sufficiently answers the user's question."
+    )
+    assessment: str = Field(
+        description="One or two sentences on coverage quality and any important gaps."
+    )
+    followups: list[SubQuestion] = Field(
+        default_factory=list,
+        description="If not complete, up to 2 targeted follow-up sub-questions "
+        "(with focus + tickers) to fill the biggest gaps.",
+    )
+
+
 class Evidence(TypedDict):
     """A single finding gathered by the researcher, with where it came from."""
 
@@ -56,5 +72,7 @@ class AgentState(TypedDict, total=False):
     # `add` reducer: researcher nodes append evidence instead of overwriting it.
     evidence: Annotated[list[Evidence], add]
     critique: str                 # the critic's assessment
-    loops: int                    # how many times the critic has sent work back
+    complete: bool                # critic says coverage is sufficient
+    followups: list[SubQuestion]  # critic's targeted gap questions (drives the loop)
+    loops: int                    # how many critic passes have run (loop guard)
     report: str                   # the final synthesized answer
