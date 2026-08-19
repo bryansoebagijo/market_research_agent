@@ -11,6 +11,13 @@ import sys
 
 from agent.graph import build_graph
 
+# Windows consoles default to cp1252, which can't encode characters the LLM may emit
+# (arrows, curly quotes, etc.). Force UTF-8 so printing findings never crashes.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:  # noqa: BLE001 - older Pythons / non-reconfigurable streams
+    pass
+
 
 def main() -> None:
     if len(sys.argv) < 2:
@@ -40,7 +47,7 @@ def main() -> None:
     print("=" * 70)
     for i, ev in enumerate(result.get("evidence", []), start=1):
         print(f"\n[{i}] {ev['subquestion']}")
-        print(f"    → {ev['finding']}")
+        print(f"    -> {ev['finding']}")
         print(f"    source: {ev['source']}")
     print("\n" + "=" * 70)
 
