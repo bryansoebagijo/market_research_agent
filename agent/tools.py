@@ -36,20 +36,79 @@ def _get(url: str, params: dict | None = None, timeout: float = 20.0) -> dict | 
     return r.json()
 
 
+# --- Technical indicators (same approach as the Telegram bot: Wilder's RSI, EMA) ---
+
+def compute_rsi(closes: list[float], period: int = 14) -> float | None:
+    """RSI with Wilder's smoothing. Needs > period closes."""
+    if len(closes) < period + 1:
+        return None
+    gains, losses = [], []
+    for i in range(1, len(closes)):
+        change = closes[i] - closes[i - 1]
+        gains.append(max(change, 0.0))
+        losses.append(max(-change, 0.0))
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for i in range(period, len(gains)):  # Wilder's smoothing over the rest
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - 100 / (1 + rs)
+
+
+def compute_ema(values: list[float], period: int) -> float | None:
+    """Exponential moving average, seeded with an SMA of the first `period` values."""
+    if len(values) < period:
+        return None
+    k = 2 / (period + 1)
+    ema = sum(values[:period]) / period
+    for v in values[period:]:
+        ema = v * k + ema * (1 - k)
+    return ema
+
+
+def _trend_read(closes: list[float]) -> str:
+    """Turn a chronological close series into a plain-language technical read."""
+    price = closes[-1]
+    ema13, ema21, rsi = compute_ema(closes, 13), compute_ema(closes, 21), compute_rsi(closes, 14)
+    if ema13 is None or ema21 is None or rsi is None:
+        return "insufficient price history to compute indicators."
+    if ema13 > ema21 and price > ema13 and price > ema21:
+        momentum = "bullish (EMA13 > EMA21, price above both)"
+    elif ema13 < ema21 and price < ema13 and price < ema21:
+        momentum = "bearish (EMA13 < EMA21, price below both)"
+    else:
+        momentum = "mixed / no clear trend"
+    rsi_note = "overbought" if rsi >= 70 else "oversold" if rsi <= 30 else "neutral"
+    return (
+        f"RSI(14) {rsi:.0f} ({rsi_note}); EMA13 {ema13:,.2f} vs EMA21 {ema21:,.2f}; "
+        f"momentum {momentum}"
+    )
+
+
+@lru_cache(maxsize=64)
+def _coingecko_id(symbol: str) -> str | None:
+    """Resolve a ticker like 'BTC' to a CoinGecko coin id (cached)."""
+    found = _get("https://api.coingecko.com/api/v3/search", {"query": symbol})
+    coins = found.get("coins", []) if isinstance(found, dict) else []
+    match = next((c for c in coins if c["symbol"].upper() == symbol.upper()), coins[0] if coins else None)
+    return match["id"] if match else None
+
+
 @lru_cache(maxsize=64)
 def crypto_snapshot(symbol: str) -> dict:
     """Current price + 24h/7d/30d change for a crypto, from CoinGecko (keyless)."""
     src = "CoinGecko"
     try:
-        found = _get("https://api.coingecko.com/api/v3/search", {"query": symbol})
-        coins = found.get("coins", []) if isinstance(found, dict) else []
-        match = next((c for c in coins if c["symbol"].upper() == symbol.upper()), coins[0] if coins else None)
-        if not match:
+        coin_id = _coingecko_id(symbol)
+        if not coin_id:
             return {"text": f"No CoinGecko match for {symbol}.", "source": src}
         time.sleep(1.2)  # respect CoinGecko's aggressive free-tier rate limit
         markets = _get(
             "https://api.coingecko.com/api/v3/coins/markets",
-            {"vs_currency": "usd", "ids": match["id"], "price_change_percentage": "24h,7d,30d"},
+            {"vs_currency": "usd", "ids": coin_id, "price_change_percentage": "24h,7d,30d"},
         )
         if not markets:
             return {"text": f"No market data for {symbol}.", "source": src}
@@ -63,6 +122,27 @@ def crypto_snapshot(symbol: str) -> dict:
         return {"text": text, "source": f"{src} (live)"}
     except Exception as exc:  # noqa: BLE001 - degrade to a text finding, never crash the node
         return {"text": f"Crypto data unavailable for {symbol} ({exc}).", "source": src}
+
+
+@lru_cache(maxsize=64)
+def crypto_technicals(symbol: str) -> dict:
+    """RSI(14) + EMA13/EMA21 momentum for a crypto, computed from 95 daily closes."""
+    src = "CoinGecko"
+    try:
+        coin_id = _coingecko_id(symbol)
+        if not coin_id:
+            return {"text": f"No CoinGecko match for {symbol}.", "source": src}
+        time.sleep(1.2)
+        chart = _get(
+            f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
+            {"vs_currency": "usd", "days": 95, "interval": "daily"},
+        )
+        closes = [p[1] for p in chart.get("prices", [])] if isinstance(chart, dict) else []
+        if len(closes) < 22:
+            return {"text": f"{symbol}: not enough history for indicators.", "source": src}
+        return {"text": f"{symbol.upper()} technicals — {_trend_read(closes)}", "source": f"{src} (computed)"}
+    except Exception as exc:  # noqa: BLE001
+        return {"text": f"Crypto technicals unavailable for {symbol} ({exc}).", "source": src}
 
 
 @lru_cache(maxsize=64)
@@ -88,6 +168,29 @@ def stock_snapshot(symbol: str) -> dict:
         return {"text": text, "source": f"{src} (live)"}
     except Exception as exc:  # noqa: BLE001
         return {"text": f"Stock data unavailable for {symbol} ({exc}).", "source": src}
+
+
+@lru_cache(maxsize=64)
+def stock_technicals(symbol: str) -> dict:
+    """RSI(14) + EMA13/EMA21 momentum for a stock, computed from 60 daily closes."""
+    src = "Twelve Data"
+    if not settings.twelve_data_api_key:
+        return {"text": f"{symbol}: technicals unavailable (no TWELVE_DATA_API_KEY set).", "source": src}
+    try:
+        d = _get(
+            "https://api.twelvedata.com/time_series",
+            {"symbol": symbol, "interval": "1day", "outputsize": 60, "order": "ASC",
+             "apikey": settings.twelve_data_api_key},
+        )
+        if not isinstance(d, dict) or d.get("status") == "error":
+            return {"text": f"{symbol}: {d.get('message', 'no data') if isinstance(d, dict) else 'no data'}", "source": src}
+        closes = [float(v["close"]) for v in d.get("values", [])]  # ASC = oldest first
+        if len(closes) < 22:
+            return {"text": f"{symbol}: not enough history for indicators.", "source": src}
+        time.sleep(1.5)
+        return {"text": f"{symbol.upper()} technicals — {_trend_read(closes)}", "source": f"{src} (computed)"}
+    except Exception as exc:  # noqa: BLE001
+        return {"text": f"Stock technicals unavailable for {symbol} ({exc}).", "source": src}
 
 
 @lru_cache(maxsize=64)

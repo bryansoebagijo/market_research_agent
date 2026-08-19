@@ -20,8 +20,10 @@ from agent.state import AgentState, Evidence, SubQuestion
 from agent.tools import (
     classify_ticker,
     crypto_snapshot,
+    crypto_technicals,
     stock_fundamentals,
     stock_snapshot,
+    stock_technicals,
     web_search,
 )
 
@@ -53,9 +55,12 @@ def _gather(subq: SubQuestion, plan_tickers: list[str]) -> list[tuple[str, str]]
 
     for t in tickers:
         kind = classify_ticker(t)
-        if focus in ("price", "technicals"):
+        if focus == "price":
             snap = crypto_snapshot(t) if kind == "crypto" else stock_snapshot(t)
             results.append((snap["text"], snap["source"]))
+        elif focus == "technicals":
+            tech = crypto_technicals(t) if kind == "crypto" else stock_technicals(t)
+            results.append((tech["text"], tech["source"]))
         elif focus == "fundamentals" and kind == "stock":
             f = stock_fundamentals(t)
             results.append((f["text"], f["source"]))
