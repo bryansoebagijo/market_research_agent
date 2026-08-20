@@ -1,0 +1,17 @@
+[
+  {
+    "question": "Is NVDA expensive right now given its fundamentals and technicals?",
+    "expected_tickers": ["NVDA"],
+    "expected_focus": ["fundamentals", "technicals"]
+  },
+  {
+    "question": "What are the key risks and catalysts for BTC this week?",
+    "expected_tickers": ["BTC"],
+    "expected_focus": ["news", "technicals"]
+  },
+  {
+    "question": "Compare the current risk profile of AAPL and ETH.",
+    "expected_tickers": ["AAPL", "ETH"],
+    "expected_focus": ["price", "technicals"]
+  }
+]

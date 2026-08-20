@@ -107,6 +107,27 @@ CRITIC         →  passes: 1  |  coverage OK: true
 REPORT         →  balanced risk summary • cited bullet findings • what's uncertain • disclaimer
 ```
 
+## Evaluation
+```bash
+python -m eval.evaluate                 # trajectory + LLM-as-judge
+python -m eval.evaluate --no-judge      # trajectory only (fewer API calls)
+python -m eval.evaluate --limit 1       # single question while iterating
+```
+Two layers, because they answer different questions:
+
+| Layer | Measures | Examples |
+|---|---|---|
+| **Trajectory** (deterministic) | Did the agent *behave* correctly? | ticker recall, focus coverage, data availability, source diversity, critic passes |
+| **Quality** (LLM-as-judge) | Was the *output* any good? | report faithfulness (hallucination check), relevance, analyst groundedness |
+
+The judge runs on a **different model** from the one that produced the output, so it
+isn't grading itself with the same blind spots. Both are Gemini here (that's what's
+free), so independence is partial — a different provider would be stronger.
+
+**Read the numbers honestly:** the bundled dataset is tiny, so a perfect score is weak
+evidence of quality. The harness earns its keep as a **regression check** — change a
+prompt or a tool and see whether faithfulness or coverage moves.
+
 ## Design notes & honest limitations
 - **The reflection loop is bounded** by `MAX_CRITIC_LOOPS` so it always terminates, even
   when some data is structurally unavailable.
@@ -116,6 +137,8 @@ REPORT         →  balanced risk summary • cited bullet findings • what's u
   validated edge or a recommendation.
 
 ## Roadmap
-Planner, Researcher, Critic (with loop-back), Synthesizer, computed technicals, and
-human-in-the-loop plan review are all built. Possible next step: an evaluation harness
-(trajectory + answer-faithfulness via LLM-as-judge).
+All six nodes (Planner, Researcher, Critic with loop-back, Synthesizer, Analyst) plus
+computed technicals, RSS news, human-in-the-loop plan review, and the evaluation harness
+are built. Natural next steps: a larger eval dataset for a meaningful baseline, a
+non-Gemini judge for true independence, and persistent run history to track metrics over
+time.

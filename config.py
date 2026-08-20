@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     max_subquestions: int = 5
     max_critic_loops: int = 2
 
+    # ---------- Evaluation ----------
+    # The judge should differ from the model being judged, so it doesn't share the
+    # same blind spots. Both are Gemini here (that's what's free), so independence is
+    # partial — a different provider would be stronger.
+    judge_model: str = "gemini-3.6-flash"
+    judge_delay_seconds: float = 4.0  # pace judge calls against free-tier limits
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
