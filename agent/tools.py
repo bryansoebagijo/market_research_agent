@@ -193,9 +193,35 @@ def stock_technicals(symbol: str) -> dict:
         return {"text": f"Stock technicals unavailable for {symbol} ({exc}).", "source": src}
 
 
+def _big_money(value: str) -> str:
+    """Format a raw market-cap number as e.g. $5.27T / $812.4B / $940.2M."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    for cutoff, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M")):
+        if n >= cutoff:
+            return f"${n / cutoff:.2f}{suffix}"
+    return f"${n:,.0f}"
+
+
+def _pct(value: str) -> str:
+    """Alpha Vantage returns ratios as decimals ('0.63'); show them as percentages."""
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _av_field(d: dict, key: str) -> str:
+    """Alpha Vantage uses the literal string 'None' for missing values."""
+    v = d.get(key)
+    return "n/a" if v in (None, "", "None", "-") else str(v)
+
+
 @lru_cache(maxsize=64)
 def stock_fundamentals(symbol: str) -> dict:
-    """Key fundamentals (P/E, market cap, margin, sector) from Alpha Vantage."""
+    """Valuation, profitability, and profile fundamentals from Alpha Vantage."""
     src = "Alpha Vantage"
     if not settings.alphavantage_api_key:
         return {"text": f"{symbol}: fundamentals unavailable (no ALPHAVANTAGE_API_KEY set).", "source": src}
@@ -205,11 +231,16 @@ def stock_fundamentals(symbol: str) -> dict:
             {"function": "OVERVIEW", "symbol": symbol, "apikey": settings.alphavantage_api_key},
         )
         if not isinstance(d, dict) or "Symbol" not in d:
+            # AV signals rate limits / bad symbols in the body, not the HTTP status.
             return {"text": f"{symbol}: fundamentals unavailable (rate limited or no data).", "source": src}
         text = (
-            f"{symbol.upper()} fundamentals — P/E {d.get('PERatio', 'n/a')}, "
-            f"market cap {d.get('MarketCapitalization', 'n/a')}, "
-            f"profit margin {d.get('ProfitMargin', 'n/a')}, sector {d.get('Sector', 'n/a')}"
+            f"{symbol.upper()} ({_av_field(d, 'Name')}, {_av_field(d, 'Sector').title()}) "
+            f"fundamentals — market cap {_big_money(d.get('MarketCapitalization'))}; "
+            f"P/E {_av_field(d, 'PERatio')} (forward {_av_field(d, 'ForwardPE')}, "
+            f"PEG {_av_field(d, 'PEGRatio')}); profit margin {_pct(d.get('ProfitMargin'))}; "
+            f"ROE {_pct(d.get('ReturnOnEquityTTM'))}; EPS {_av_field(d, 'EPS')}; "
+            f"beta {_av_field(d, 'Beta')}; dividend yield {_pct(d.get('DividendYield'))}; "
+            f"52-week {_av_field(d, '52WeekLow')}–{_av_field(d, '52WeekHigh')}"
         )
         return {"text": text, "source": src}
     except Exception as exc:  # noqa: BLE001
