@@ -37,6 +37,19 @@ The **Critic → loop-back** is a real conditional edge: the agent *decides* whe
 research more, and a loop counter guarantees it terminates. That reflection is what makes
 this an agent rather than a pipeline.
 
+### Human-in-the-loop (`--review`)
+```
+START → planner → human_review ─┬─ approve → researcher → … → report
+             ▲                  ├─ revise  → planner (re-plans with your feedback)
+             └──────────────────┘
+                                └─ cancel  → stop, nothing researched
+```
+Run with `--review` and the agent **pauses after planning** and shows you the plan. The
+gate sits here on purpose: the plan decides what everything downstream spends time and
+API calls on, so correcting a wrong angle is cheapest at this point. Implemented with
+LangGraph's `interrupt()` — the run suspends, its state is saved by a checkpointer, and
+resuming with your decision continues exactly where it left off.
+
 ## Stack
 - **LangGraph** — stateful multi-node orchestration with a typed shared state
 - **Gemini** (`gemini-3.5-flash-lite`) — the reasoning model (free tier; ~3–4 calls/run)
@@ -61,6 +74,13 @@ python main.py "Is now a risky time to hold NVDA and BTC?"
 It prints the research plan, the evidence gathered (with sources), the critic's verdict
 and how many research passes it took, then the final cited report.
 
+To approve the plan before any research runs:
+```bash
+python main.py --review "Is now a risky time to hold NVDA and BTC?"
+```
+You'll be shown the plan and asked for **[a]** approve, **[r]** revise with feedback
+(e.g. *"focus only on BTC"* — it re-plans), or **[c]** cancel.
+
 ## Example (abridged)
 ```
 RESEARCH PLAN  →  tickers: NVDA, BTC; 5 tagged sub-questions
@@ -79,6 +99,6 @@ REPORT         →  balanced risk summary • cited bullet findings • what's u
   validated edge or a recommendation.
 
 ## Roadmap
-Planner, Researcher, Critic (with loop-back), Synthesizer, and computed technicals are all
-built. Possible next steps: human-in-the-loop approval of the plan/report (LangGraph
-interrupt), and an evaluation harness (trajectory + answer-faithfulness via LLM-as-judge).
+Planner, Researcher, Critic (with loop-back), Synthesizer, computed technicals, and
+human-in-the-loop plan review are all built. Possible next step: an evaluation harness
+(trajectory + answer-faithfulness via LLM-as-judge).

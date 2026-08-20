@@ -34,12 +34,17 @@ def planner_node(state: AgentState) -> dict:
     llm = get_llm().with_structured_output(ResearchPlan)
 
     system = PLANNER_SYSTEM.format(max_q=settings.max_subquestions)
-    plan: ResearchPlan = llm.invoke(
-        [
-            ("system", system),
-            ("human", f"Research question:\n{question}"),
-        ]
-    )
+
+    # If a human reviewed a previous plan and asked for changes, fold that guidance in.
+    feedback = state.get("human_feedback", "")
+    prompt = f"Research question:\n{question}"
+    if feedback:
+        prompt += (
+            f"\n\nA human reviewed your previous plan and asked for these changes:\n"
+            f"{feedback}\n\nProduce a revised plan that follows this guidance."
+        )
+
+    plan: ResearchPlan = llm.invoke([("system", system), ("human", prompt)])
 
     # Trim to the configured maximum in case the model over-produces.
     plan.subquestions = plan.subquestions[: settings.max_subquestions]

@@ -76,3 +76,6 @@ class AgentState(TypedDict, total=False):
     followups: list[SubQuestion]  # critic's targeted gap questions (drives the loop)
     loops: int                    # how many critic passes have run (loop guard)
     report: str                   # the final synthesized answer
+    # --- human-in-the-loop ---
+    human_feedback: str           # guidance from a human, fed back into the planner
+    cancelled: bool               # human stopped the run at plan review
