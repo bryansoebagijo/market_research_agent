@@ -124,9 +124,26 @@ The judge runs on a **different model** from the one that produced the output, s
 isn't grading itself with the same blind spots. Both are Gemini here (that's what's
 free), so independence is partial — a different provider would be stronger.
 
-**Read the numbers honestly:** the bundled dataset is tiny, so a perfect score is weak
-evidence of quality. The harness earns its keep as a **regression check** — change a
-prompt or a tool and see whether faithfulness or coverage moves.
+### Measured baseline
+Run on the bundled 3-question dataset (NVDA valuation, BTC risks/catalysts, AAPL vs ETH
+— the last exercising mixed stock+crypto routing):
+
+| Metric | Score |
+|---|---:|
+| Ticker recall | **1.00** |
+| Focus coverage | **1.00** |
+| Data availability | **1.00** |
+| Source diversity | **7.7** sources/run |
+| Critic passes | **1.0** |
+| Report faithfulness *(judge)* | **1.00** |
+| Report relevance *(judge)* | **1.00** |
+| Analyst groundedness *(judge)* | **1.00** |
+
+**Read this honestly:** three straightforward questions all scoring 1.00 is a *green
+baseline*, not proof of excellence — the dataset contains no adversarial cases (obscure
+tickers, ambiguous questions, deliberately unavailable data). Its value is as a
+**regression check**: change a prompt or a tool, re-run, and see whether anything moves.
+Adding harder cases is the obvious way to make these numbers more informative.
 
 ## Design notes & honest limitations
 - **The reflection loop is bounded** by `MAX_CRITIC_LOOPS` so it always terminates, even
