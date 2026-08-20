@@ -57,7 +57,10 @@ resuming with your decision continues exactly where it left off.
   - **CoinGecko** — crypto price + **computed RSI(14) / EMA13 / EMA21** momentum
   - **Twelve Data** — US-stock price + computed technicals *(free key)*
   - **Alpha Vantage** — stock fundamentals *(optional free key)*
-  - **DuckDuckGo** — news & macro web search *(keyless)*
+  - **RSS news** — dated headlines from CoinDesk / Cointelegraph / Decrypt (crypto) and
+    CNBC / Yahoo Finance / MarketWatch **plus Yahoo's per-ticker feed** (stocks), so news
+    findings are real, recent, and company-specific
+  - **DuckDuckGo** — macro & supplementary web search *(keyless)*
 
 ## Setup
 ```bash

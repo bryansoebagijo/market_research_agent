@@ -216,6 +216,105 @@ def stock_fundamentals(symbol: str) -> dict:
         return {"text": f"Fundamentals unavailable for {symbol} ({exc}).", "source": src}
 
 
+# --- News headlines from RSS feeds (dated, from real outlets) ---
+
+CRYPTO_FEEDS = {
+    "CoinDesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "Cointelegraph": "https://cointelegraph.com/rss",
+    "Decrypt": "https://decrypt.co/feed",
+}
+
+STOCK_FEEDS = {
+    "CNBC": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "Yahoo Finance": "https://finance.yahoo.com/news/rssindex",
+    "MarketWatch": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+}
+
+# Ticker -> extra words to match in a headline (a headline rarely says "NVDA").
+TICKER_ALIASES = {
+    "BTC": ["bitcoin"], "ETH": ["ethereum", "ether"], "SOL": ["solana"],
+    "XRP": ["ripple"], "DOGE": ["dogecoin"], "ADA": ["cardano"],
+    "NVDA": ["nvidia"], "AAPL": ["apple"], "MSFT": ["microsoft"],
+    "AMZN": ["amazon"], "GOOGL": ["google", "alphabet"], "META": ["meta", "facebook"],
+    "TSLA": ["tesla"],
+}
+
+
+def _entry_date(entry) -> str:
+    """Best-effort published date for a feed entry (empty string if absent)."""
+    parsed = getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
+    if parsed:
+        return time.strftime("%Y-%m-%d", parsed)
+    return ""
+
+
+@lru_cache(maxsize=32)
+def fetch_news(kind: str, tickers_key: str = "", per_feed: int = 6) -> dict:
+    """Recent headlines from crypto or stock RSS feeds.
+
+    `kind` is 'crypto' or 'stock'. `tickers_key` is a comma-joined ticker string
+    (cacheable); when given, headlines mentioning those tickers/names are preferred,
+    with general market headlines used as filler so there's always context.
+    """
+    import feedparser  # imported lazily so a missing dep can't break the module
+
+    feeds = CRYPTO_FEEDS if kind == "crypto" else STOCK_FEEDS
+    tickers = [t.strip().upper() for t in tickers_key.split(",") if t.strip()]
+    # Words that make a headline "relevant" to the tickers we care about.
+    wanted = {t.lower() for t in tickers}
+    for t in tickers:
+        wanted.update(TICKER_ALIASES.get(t, []))
+
+    matched: list[str] = []
+    general: list[str] = []
+    used_sources: list[str] = []
+
+    # For stocks, Yahoo publishes a per-ticker feed — the reliable way to get news
+    # about a specific company, since general top-stories feeds often won't mention it.
+    feeds = dict(feeds)
+    if kind == "stock":
+        for t in tickers:
+            feeds[f"Yahoo {t}"] = (
+                f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={t}&region=US&lang=en-US"
+            )
+
+    for name, url in feeds.items():
+        try:
+            parsed = feedparser.parse(url)
+            entries = parsed.entries[:per_feed]
+            if entries:
+                used_sources.append(name)
+            for e in entries:
+                title = (getattr(e, "title", "") or "").strip()
+                if not title:
+                    continue
+                date = _entry_date(e)
+                line = f"- ({date or 'undated'}, {name}) {title}"
+                # Entries from a per-ticker feed are about that ticker by definition,
+                # even when the headline text doesn't spell the name out.
+                ticker_feed = name.startswith("Yahoo ") and name != "Yahoo Finance"
+                if ticker_feed or (wanted and any(w in title.lower() for w in wanted)):
+                    matched.append(line)
+                else:
+                    general.append(line)
+        except Exception:  # noqa: BLE001 - one bad feed shouldn't sink the rest
+            continue
+
+    if not matched and not general:
+        return {"text": "No headlines could be fetched from the news feeds.", "source": "RSS news feeds"}
+
+    lines = matched[:8]
+    if len(lines) < 6:  # top up with general market headlines for context
+        lines += general[: 6 - len(lines)]
+
+    header = (
+        f"Headlines mentioning {', '.join(tickers)} (plus general market headlines):"
+        if matched else "Recent market headlines (no ticker-specific matches found):"
+    )
+    src = f"RSS: {', '.join(used_sources)}" if used_sources else "RSS news feeds"
+    return {"text": header + "\n" + "\n".join(lines), "source": src}
+
+
 def web_search(query: str, k: int = 5) -> dict:
     """Recent web results (news, macro context) via keyless DuckDuckGo search."""
     src = "DuckDuckGo web search"

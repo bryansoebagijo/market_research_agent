@@ -21,6 +21,7 @@ from agent.tools import (
     classify_ticker,
     crypto_snapshot,
     crypto_technicals,
+    fetch_news,
     stock_fundamentals,
     stock_snapshot,
     stock_technicals,
@@ -65,7 +66,15 @@ def _gather(subq: SubQuestion, plan_tickers: list[str]) -> list[tuple[str, str]]
             f = stock_fundamentals(t)
             results.append((f["text"], f["source"]))
 
-    # News, macro, or anything a market tool couldn't cover → web search.
+    # News: pull dated headlines from real outlets (RSS), split by market type, so the
+    # findings are actual recent news rather than undated web snippets.
+    if focus == "news":
+        for kind in {classify_ticker(t) for t in tickers} or {"crypto", "stock"}:
+            relevant = [t for t in tickers if classify_ticker(t) == kind]
+            n = fetch_news(kind, ",".join(sorted(relevant)))
+            results.append((n["text"], n["source"]))
+
+    # Macro, news follow-up context, or anything a market tool couldn't cover → web.
     if focus in ("news", "macro") or not results:
         w = web_search(subq.question)
         results.append((w["text"], w["source"]))
