@@ -89,6 +89,26 @@ def print_results(result: dict) -> None:
     print("REPORT")
     print(LINE)
     print(result.get("report", "(no report generated)"))
+
+    view = result.get("analyst_view")
+    if view:
+        from agent.nodes.analyst import DISCLAIMER as ANALYST_DISCLAIMER
+
+        print("\n" + LINE)
+        print("ANALYST VIEW (professional-style interpretation)")
+        print(LINE)
+        print(f"Stance     : {view.stance}")
+        print(f"Conviction : {view.conviction}   |   Horizon: {view.horizon}")
+        print("\nWhy:")
+        for point in view.reasoning:
+            print(f"  - {point}")
+        print("\nWhat would change this view:")
+        for point in view.what_would_change_it:
+            print(f"  - {point}")
+        print("\nKey risks:")
+        for point in view.key_risks:
+            print(f"  - {point}")
+        print(ANALYST_DISCLAIMER)
     print(LINE)
 
 

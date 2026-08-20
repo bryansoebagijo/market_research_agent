@@ -56,6 +56,24 @@ class CriticVerdict(BaseModel):
     )
 
 
+class AnalystView(BaseModel):
+    """A professional-style read on what the evidence implies — informational only."""
+
+    stance: str = Field(
+        description="One of: Accumulate, Hold, Trim, Avoid, Watch. Per ticker if the "
+        "question covers several, e.g. 'BTC: Watch | NVDA: Hold'."
+    )
+    conviction: str = Field(description="Low, Medium, or High — how strong the evidence is.")
+    horizon: str = Field(description="Time frame this view applies to, e.g. 'weeks to months'.")
+    reasoning: list[str] = Field(
+        description="2-4 short points justifying the stance, each grounded in the evidence."
+    )
+    what_would_change_it: list[str] = Field(
+        description="1-3 concrete conditions that would invalidate or flip this view."
+    )
+    key_risks: list[str] = Field(description="1-3 main risks to this view.")
+
+
 class Evidence(TypedDict):
     """A single finding gathered by the researcher, with where it came from."""
 
@@ -76,6 +94,7 @@ class AgentState(TypedDict, total=False):
     followups: list[SubQuestion]  # critic's targeted gap questions (drives the loop)
     loops: int                    # how many critic passes have run (loop guard)
     report: str                   # the final synthesized answer
+    analyst_view: AnalystView     # professional-style read on what the evidence implies
     # --- human-in-the-loop ---
     human_feedback: str           # guidance from a human, fed back into the planner
     cancelled: bool               # human stopped the run at plan review

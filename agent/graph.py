@@ -2,8 +2,9 @@
 Assemble the LangGraph agent.
 
 Without human review:
-    START → planner → researcher → critic ─┬─(gaps + under limit)→ researcher  (loop)
-                                           └─(complete OR limit)──→ synthesizer → END
+    START → planner → researcher → critic ─┬─(gaps + under limit)→ researcher    (loop)
+                                           └─(complete OR limit)──→ synthesizer
+                                                                        → analyst → END
 
 With human review (build_graph(review=True)):
     START → planner → human_review ─┬─(approve)→ researcher → … → synthesizer → END
@@ -21,6 +22,7 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 
 from config import settings
+from agent.nodes.analyst import analyst_node
 from agent.nodes.critic import critic_node
 from agent.nodes.human_review import human_review_node
 from agent.nodes.planner import planner_node
@@ -63,6 +65,7 @@ def build_graph(review: bool = False):
     graph.add_node("researcher", researcher_node)
     graph.add_node("critic", critic_node)
     graph.add_node("synthesizer", synthesizer_node)
+    graph.add_node("analyst", analyst_node)
 
     graph.add_edge(START, "planner")
 
@@ -83,7 +86,8 @@ def build_graph(review: bool = False):
         route_after_critic,
         {"research_more": "researcher", "done": "synthesizer"},
     )
-    graph.add_edge("synthesizer", END)
+    graph.add_edge("synthesizer", "analyst")
+    graph.add_edge("analyst", END)
 
     if not review:
         return graph.compile()

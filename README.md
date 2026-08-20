@@ -31,11 +31,25 @@ question
 [Synthesizer]  balanced, cited report + "what's uncertain" + disclaimer
    │
    ▼
- report
+[Analyst]      a portfolio-manager-style read: stance, conviction, horizon,
+   │           reasoning, invalidation conditions, key risks
+   ▼
+ report + analyst view
 ```
 The **Critic → loop-back** is a real conditional edge: the agent *decides* whether to
 research more, and a loop counter guarantees it terminates. That reflection is what makes
 this an agent rather than a pipeline.
+
+### The Analyst view
+The synthesizer answers *"what does the data say?"*; the analyst answers *"how would an
+experienced investor read it?"* — a stance (Accumulate / Hold / Trim / Avoid / Watch),
+conviction, horizon, reasoning, **what would change the view**, and key risks.
+
+Two deliberate constraints keep it honest: it must weigh conflicting signals rather than
+cherry-pick, and it must state **invalidation conditions** — a view you can't disprove is
+a vibe, not analysis. It gives no position sizes, price targets, or personalised
+instructions, and carries its own disclaimer: a language model persona has **no validated
+track record**, so this is an interpretation of the evidence, not advice.
 
 ### Human-in-the-loop (`--review`)
 ```
