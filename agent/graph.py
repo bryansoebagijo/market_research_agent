@@ -53,11 +53,14 @@ def route_after_review(state: AgentState) -> str:
     return "approve"
 
 
-def build_graph(review: bool = False):
+def build_graph(review: bool = False, checkpointer: bool | None = None):
     """Build and compile the agent graph.
 
     review=True inserts the human-in-the-loop plan gate (and a checkpointer, which
     LangGraph needs in order to suspend and resume at an interrupt).
+
+    checkpointer overrides whether one is attached. The UI passes True even without
+    review, so it can stream progress and then read the final state back.
     """
     graph = StateGraph(AgentState)
 
@@ -89,7 +92,8 @@ def build_graph(review: bool = False):
     graph.add_edge("synthesizer", "analyst")
     graph.add_edge("analyst", END)
 
-    if not review:
+    use_checkpointer = review if checkpointer is None else checkpointer
+    if not use_checkpointer:
         return graph.compile()
 
     # A checkpointer persists state between the interrupt and the resume. Our state

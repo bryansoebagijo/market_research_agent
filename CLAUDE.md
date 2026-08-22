@@ -47,7 +47,10 @@ START → planner → [human_review*] → researcher → critic ─┬─(gaps, 
 - Python 3.10+ (built on 3.13).
 - All config via environment variables in `.env` (see `.env.example`). Never hardcode,
   print, or commit secrets. `.env` is git-ignored.
-- Run: `python main.py "your question"`, add `--review` for the human gate.
+- Run (CLI): `python main.py "your question"`, add `--review` for the human gate.
+- Run (UI): `streamlit run streamlit_app.py` — streams progress node-by-node and turns
+  the review gate into approve/revise/cancel buttons. It imports the agent directly;
+  there is deliberately **no separate backend** to keep the stack small.
 - Evaluate: `python -m eval.evaluate [--no-judge] [--limit N]`.
 
 ## Data sources (all free tiers)
@@ -94,7 +97,8 @@ plain-language momentum read — same approach as the owner's Telegram bot.
 - **Don't dress up eval numbers.** The bundled dataset is small and easy; a 1.00 baseline
   is a *green baseline*, not proof of quality. Its value is regression detection.
 - Ask before adding dependencies beyond: langgraph, langchain-core,
-  langchain-google-genai, httpx, feedparser, ddgs, pydantic(-settings), python-dotenv.
+  langchain-google-genai, httpx, feedparser, ddgs, pydantic(-settings), python-dotenv,
+  streamlit (added for the UI).
 - Update this file whenever a decision changes; it is the project's single source of truth.
 
 ## Measured baseline

@@ -18,3 +18,6 @@ reports/
 .DS_Store
 .idea/
 .vscode/
+
+# Streamlit UI log
+ui.log

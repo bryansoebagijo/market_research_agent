@@ -91,6 +91,19 @@ python main.py "Is now a risky time to hold NVDA and BTC?"
 It prints the research plan, the evidence gathered (with sources), the critic's verdict
 and how many research passes it took, then the final cited report.
 
+### Web UI
+```bash
+streamlit run streamlit_app.py
+```
+Opens at http://localhost:8501 — type a question and watch the agent work **node by
+node** (planning → gathering → critiquing → reporting) instead of waiting on a silent
+terminal. Results render as a plan, an expandable evidence list with sources, the critic's
+verdict, the report, and the analyst view with its stance/conviction/horizon. Toggle
+**"Review the plan before researching"** in the sidebar to get approve / revise / cancel
+buttons before any research runs. The UI calls the agent directly — there's no separate
+backend.
+
+### CLI
 To approve the plan before any research runs:
 ```bash
 python main.py --review "Is now a risky time to hold NVDA and BTC?"
