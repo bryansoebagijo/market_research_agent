@@ -70,14 +70,28 @@ class CriticVerdict(BaseModel):
 
 
 class AnalystView(BaseModel):
-    """A professional-style read on what the evidence implies — informational only."""
+    """A long-horizon value-investor read on the evidence — informational only."""
 
     stance: str = Field(
         description="One of: Accumulate, Hold, Trim, Avoid, Watch. Per ticker if the "
         "question covers several, e.g. 'BTC: Watch | NVDA: Hold'."
     )
     conviction: str = Field(description="Low, Medium, or High — how strong the evidence is.")
-    horizon: str = Field(description="Time frame this view applies to, e.g. 'weeks to months'.")
+    horizon: str = Field(
+        description="Time frame this view applies to. Default to years (3-5+) unless the "
+        "question explicitly asks about a shorter period."
+    )
+    quality: str = Field(
+        description="The business's durability and earnings power in 1-2 sentences: "
+        "margins, returns on equity, growth consistency. For crypto, assess the network "
+        "and adoption instead and say plainly that company-quality metrics don't apply."
+    )
+    valuation: str = Field(
+        description="Whether the current price looks attractive relative to earnings "
+        "power and growth (P/E, forward P/E, PEG, growth rate), in 1-2 sentences — and "
+        "whether there is any margin of safety. For crypto, say that intrinsic-value "
+        "methods do not apply and explain what you are judging instead."
+    )
     reasoning: list[str] = Field(
         description="2-4 short points justifying the stance, each grounded in the evidence."
     )

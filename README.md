@@ -40,12 +40,30 @@ The **Critic → loop-back** is a real conditional edge: the agent *decides* whe
 research more, and a loop counter guarantees it terminates. That reflection is what makes
 this an agent rather than a pipeline.
 
-### The Analyst view
-The synthesizer answers *"what does the data say?"*; the analyst answers *"how would an
-experienced investor read it?"* — a stance (Accumulate / Hold / Trim / Avoid / Watch),
-conviction, horizon, reasoning, **what would change the view**, and key risks.
+### The Analyst view — a long-horizon value investor
+The synthesizer answers *"what does the data say?"*; the analyst answers *"would this be
+worth owning for years?"*, reasoning the way a value investor does:
 
-Two deliberate constraints keep it honest: it must weigh conflicting signals rather than
+1. **Quality first** — margins, return on equity, and the consistency of revenue and
+   earnings growth. Compressing margins or decelerating growth are warnings even when a
+   multiple looks cheap.
+2. **Then price** — P/E, forward P/E and PEG weighed against the *actual* growth rate,
+   and whether there's any **margin of safety**.
+3. **Multi-year track record beats one quarter** — the annual EPS history carries more
+   weight than a single beat or miss.
+4. **Technicals are timing, not thesis** — over 3–5 years RSI is at most a note on
+   patience, never a reason to reject a good business.
+
+Output: stance (Accumulate / Hold / Trim / Avoid / Watch), conviction, horizon, a
+**business-quality** read, a **valuation & margin-of-safety** read, reasoning,
+**invalidation conditions**, and key risks.
+
+**Crypto is handled honestly.** Crypto assets have no earnings, cash flows, or book
+value, so intrinsic-value and margin-of-safety methods genuinely don't apply. Rather than
+faking a valuation, the analyst says so and judges what the evidence *does* support —
+adoption and network trends, flows, supply dynamics, regulation — at lower conviction.
+
+Constraints that keep it honest: it must weigh conflicting signals rather than
 cherry-pick, and it must state **invalidation conditions** — a view you can't disprove is
 a vibe, not analysis. It gives no position sizes, price targets, or personalised
 instructions, and carries its own disclaimer: a language model persona has **no validated

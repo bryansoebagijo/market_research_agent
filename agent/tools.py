@@ -297,6 +297,10 @@ def stock_earnings(symbol: str) -> dict:
     try:
         d = _get("https://www.alphavantage.co/query",
                  {"function": "EARNINGS", "symbol": symbol, "apikey": key})
+        # Alpha Vantage reports throttling in the body, not the HTTP status. Say so
+        # explicitly, or a rate limit looks identical to "this company has no data".
+        if isinstance(d, dict) and ("Note" in d or "Information" in d):
+            raise RuntimeError("Alpha Vantage rate limit reached — try again shortly")
         quarters = d.get("quarterlyEarnings", []) if isinstance(d, dict) else []
         if quarters:
             rows, beats, eps_series = [], 0, []
@@ -321,6 +325,35 @@ def stock_earnings(symbol: str) -> dict:
                 )
         else:
             parts.append("No quarterly EPS history returned.")
+
+        # Annual EPS comes back in the SAME response — no extra request — and a
+        # multi-year track record is what a long-horizon view actually needs.
+        annual = d.get("annualEarnings", []) if isinstance(d, dict) else []
+        # Alpha Vantage sometimes prepends a PARTIAL year whose period end doesn't match
+        # the company's fiscal year-end (e.g. NVDA closes 01-31 but a 07-31 stub appears
+        # holding one quarter's EPS). Keep only entries on the company's usual year-end,
+        # or the stub both distorts the growth rate and collides on the chart.
+        dated = [
+            (str(a.get("fiscalDateEnding", "")), _num(a.get("reportedEPS")))
+            for a in annual
+        ]
+        dated = [(dt, eps) for dt, eps in dated if len(dt) == 10 and eps is not None]
+        if dated:
+            month_days = [dt[5:] for dt, _ in dated]
+            usual_close = max(set(month_days), key=month_days.count)
+            dated = [(dt, eps) for dt, eps in dated if dt[5:] == usual_close]
+        yearly = [{"year": dt[:4], "eps": eps} for dt, eps in dated[:6]]
+        if yearly:
+            yearly = list(reversed(yearly))  # oldest first
+            data["eps_years"] = yearly
+            first, last = yearly[0]["eps"], yearly[-1]["eps"]
+            span = len(yearly) - 1
+            if span > 0 and first > 0:
+                cagr = ((last / first) ** (1 / span) - 1) * 100
+                parts.append(
+                    f"Annual EPS {yearly[0]['year']}–{yearly[-1]['year']}: "
+                    f"{first} → {last} ({cagr:+.1f}%/yr)."
+                )
     except Exception as exc:  # noqa: BLE001
         parts.append(f"EPS history unavailable ({exc}).")
 

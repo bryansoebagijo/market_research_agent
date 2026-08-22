@@ -42,8 +42,12 @@ START → planner → [human_review*] → researcher → critic ─┬─(gaps, 
 - **Critic** — judges coverage; if important gaps remain it emits targeted follow-up
   sub-questions and the conditional edge loops back.
 - **Synthesizer** — balanced cited report + "what's uncertain" + fixed disclaimer.
-- **Analyst** — stance (Accumulate/Hold/Trim/Avoid/Watch), conviction, horizon, reasoning,
-  **invalidation conditions**, key risks.
+- **Analyst** — a **long-horizon value investor**: quality first (margins, ROE, growth
+  consistency), then price vs earnings power and margin of safety, with the multi-year
+  annual EPS record weighted above any single quarter and technicals demoted to entry
+  timing. Outputs stance (Accumulate/Hold/Trim/Avoid/Watch), conviction, horizon
+  (default: years), a business-quality read, a valuation read, reasoning,
+  **invalidation conditions**, and key risks.
 
 ## Environment
 - Use the venv in `./venv` for every install and run (`venv\Scripts\python.exe` on Windows).
@@ -94,6 +98,10 @@ plain-language momentum read — same approach as the owner's Telegram bot.
 - **Honesty is a feature, not decoration.** Findings must say "unavailable" rather than
   guess; the report keeps a "what's uncertain" section; the analyst must weigh conflicting
   signals and state **invalidation conditions**; every output carries a disclaimer.
+- **Crypto is never forced into the value framework.** It has no earnings or cash flows,
+  so intrinsic-value and margin-of-safety methods don't apply. The analyst must say so
+  plainly, judge adoption/flows/supply/regulation instead, and lower its conviction.
+  Never let it fake a valuation.
 - **The analyst gives no position sizes, no price targets, and no personalised
   instructions.** It is an interpretation of evidence, not advice — an LLM persona has no
   validated track record. (Same posture as the owner's Telegram bot, whose backtest found

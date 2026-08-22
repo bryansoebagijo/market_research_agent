@@ -144,6 +144,13 @@ def render_charts(metrics: dict) -> None:
                 )
                 st.progress(min(max(pos, 0.0), 1.0))
 
+            # --- multi-year EPS: the track record a long-horizon view rests on ---
+            years = m.get("eps_years")
+            if years:
+                df = pd.DataFrame(years).set_index("year")[["eps"]]
+                st.caption(f"{ticker} — annual EPS (multi-year track record)")
+                st.bar_chart(df, height=220)
+
             # --- EPS: reported vs estimated, by quarter ---
             eps = m.get("eps_quarters")
             if eps:
@@ -196,10 +203,17 @@ def render_results(state: dict) -> None:
     if view:
         stance = field(view, "stance", "—")
         st.subheader("Analyst view")
+        st.caption("Long-horizon value-investor perspective")
         a, b, c = st.columns(3)
         a.metric("Stance", f"{stance_icon(stance)} {stance}")
         b.metric("Conviction", field(view, "conviction", "—"))
         c.metric("Horizon", field(view, "horizon", "—"))
+
+        q, v = st.columns(2)
+        if field(view, "quality"):
+            q.markdown(f"**Business quality**\n\n{field(view, 'quality')}")
+        if field(view, "valuation"):
+            v.markdown(f"**Valuation & margin of safety**\n\n{field(view, 'valuation')}")
 
         for heading, key in (
             ("**Why**", "reasoning"),

@@ -100,10 +100,14 @@ def print_results(result: dict) -> None:
             return view.get(name, default) if isinstance(view, dict) else getattr(view, name, default)
 
         print("\n" + LINE)
-        print("ANALYST VIEW (professional-style interpretation)")
+        print("ANALYST VIEW (long-horizon value-investor perspective)")
         print(LINE)
         print(f"Stance     : {f('stance')}")
         print(f"Conviction : {f('conviction')}   |   Horizon: {f('horizon')}")
+        if f("quality"):
+            print(f"\nBusiness quality: {f('quality')}")
+        if f("valuation"):
+            print(f"Valuation       : {f('valuation')}")
         for heading, key in (
             ("Why:", "reasoning"),
             ("What would change this view:", "what_would_change_it"),
