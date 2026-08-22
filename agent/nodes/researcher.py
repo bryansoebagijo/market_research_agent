@@ -22,6 +22,7 @@ from agent.tools import (
     crypto_snapshot,
     crypto_technicals,
     fetch_news,
+    stock_earnings,
     stock_fundamentals,
     stock_snapshot,
     stock_technicals,
@@ -65,6 +66,9 @@ def _gather(subq: SubQuestion, plan_tickers: list[str]) -> list[tuple[str, str]]
         elif focus == "fundamentals" and kind == "stock":
             f = stock_fundamentals(t)
             results.append((f["text"], f["source"]))
+        elif focus == "earnings" and kind == "stock":
+            e = stock_earnings(t)
+            results.append((e["text"], e["source"]))
 
     # News: pull dated headlines from real outlets (RSS), split by market type, so the
     # findings are actual recent news rather than undated web snippets.

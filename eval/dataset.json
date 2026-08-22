@@ -5,6 +5,11 @@
     "expected_focus": ["fundamentals", "technicals"]
   },
   {
+    "question": "Based on AAPL's recent quarterly results, is its growth accelerating or slowing?",
+    "expected_tickers": ["AAPL"],
+    "expected_focus": ["earnings"]
+  },
+  {
     "question": "What are the key risks and catalysts for BTC this week?",
     "expected_tickers": ["BTC"],
     "expected_focus": ["news", "technicals"]

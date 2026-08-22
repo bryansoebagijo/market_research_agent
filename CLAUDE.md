@@ -33,7 +33,10 @@ START → planner → [human_review*] → researcher → critic ─┬─(gaps, 
 * only when built with review=True (the --review flag)
 ```
 - **Planner** — decomposes the question into ≤5 sub-questions, each tagged
-  `price | technicals | fundamentals | news | macro` plus the tickers it concerns.
+  `price | technicals | fundamentals | earnings | news | macro` plus the tickers it
+  concerns. `earnings` is stocks-only (quarterly results); `fundamentals` is valuation
+  ratios. They're separate tags so a question only pays the extra Alpha Vantage calls
+  when it actually needs quarterly data.
 - **Researcher** — routes each sub-question to the right tool, then distills all raw tool
   output into findings in **one batched LLM call**. Appends to `evidence`.
 - **Critic** — judges coverage; if important gaps remain it emits targeted follow-up
@@ -58,7 +61,8 @@ START → planner → [human_review*] → researcher → critic ─┬─(gaps, 
 |---|---|---|
 | Crypto price + technicals | CoinGecko | keyless; slow (~19s/call), aggressive rate limits |
 | Stock price + technicals | Twelve Data | free key; ~8 req/min |
-| Stock fundamentals | Alpha Vantage | free key; **~25 req/day** — degrades to "unavailable" |
+| Stock fundamentals | Alpha Vantage `OVERVIEW` | free key; **~25 req/day** — degrades to "unavailable" |
+| Quarterly results | Alpha Vantage `EARNINGS` + `INCOME_STATEMENT` | **2 calls** per stock; only for `earnings` sub-questions |
 | News | RSS via feedparser | CoinDesk/Cointelegraph/Decrypt; CNBC/Yahoo/MarketWatch **+ Yahoo per-ticker** |
 | Macro / supplementary | DuckDuckGo (`ddgs`) | keyless |
 

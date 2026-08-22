@@ -18,7 +18,8 @@ class SubQuestion(BaseModel):
     question: str = Field(description="A specific, answerable research question.")
     focus: str = Field(
         description="What kind of data answers it: 'price', 'technicals', "
-        "'fundamentals', 'news', or 'macro'."
+        "'fundamentals' (valuation ratios), 'earnings' (quarterly results: EPS vs "
+        "estimates, revenue growth, margins), 'news', or 'macro'."
     )
     tickers: list[str] = Field(
         default_factory=list,

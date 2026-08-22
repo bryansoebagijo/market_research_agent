@@ -70,7 +70,9 @@ resuming with your decision continues exactly where it left off.
 - **Tools** (all keyless or free):
   - **CoinGecko** — crypto price + **computed RSI(14) / EMA13 / EMA21** momentum
   - **Twelve Data** — US-stock price + computed technicals *(free key)*
-  - **Alpha Vantage** — stock fundamentals *(optional free key)*
+  - **Alpha Vantage** — stock fundamentals (P/E, PEG, margins, ROE) **and quarterly
+    results** — EPS vs estimates over the last four quarters, revenue YoY growth, gross
+    and operating margins *(optional free key; ~25 requests/day)*
   - **RSS news** — dated headlines from CoinDesk / Cointelegraph / Decrypt (crypto) and
     CNBC / Yahoo Finance / MarketWatch **plus Yahoo's per-ticker feed** (stocks), so news
     findings are real, recent, and company-specific

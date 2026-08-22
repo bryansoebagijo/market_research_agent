@@ -18,10 +18,13 @@ PLANNER_SYSTEM = (
     "stocks. Given a user's question, break it into at most {max_q} focused, "
     "answerable sub-questions. Identify any tickers (e.g. BTC, ETH, NVDA, AAPL). "
     "Tag each sub-question with the data type that answers it: price, technicals, "
-    "fundamentals, news, or macro, and list the specific ticker(s) each sub-question "
-    "concerns (empty for macro). Cover the angles a careful analyst would: recent "
-    "price/trend, technical setup, fundamentals (for stocks), news/catalysts, and "
-    "broader market context. Be specific and avoid overlap."
+    "fundamentals (valuation ratios like P/E and PEG), earnings (quarterly results: "
+    "EPS vs estimates, revenue growth, margins — STOCKS ONLY, never crypto), news, or "
+    "macro, and list the specific ticker(s) each sub-question concerns (empty for "
+    "macro). Cover the angles a careful analyst would: recent price/trend, technical "
+    "setup, and for stocks BOTH valuation fundamentals AND recent quarterly earnings "
+    "performance, plus news/catalysts and broader market context. Be specific and "
+    "avoid overlap."
 )
 
 

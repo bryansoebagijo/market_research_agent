@@ -213,6 +213,14 @@ def _pct(value: str) -> str:
         return "n/a"
 
 
+def _num(value) -> float | None:
+    """Parse an Alpha Vantage numeric string, tolerating 'None'/'-'/missing."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _av_field(d: dict, key: str) -> str:
     """Alpha Vantage uses the literal string 'None' for missing values."""
     v = d.get(key)
@@ -245,6 +253,76 @@ def stock_fundamentals(symbol: str) -> dict:
         return {"text": text, "source": src}
     except Exception as exc:  # noqa: BLE001
         return {"text": f"Fundamentals unavailable for {symbol} ({exc}).", "source": src}
+
+
+@lru_cache(maxsize=64)
+def stock_earnings(symbol: str) -> dict:
+    """Recent quarterly results: EPS vs estimates, revenue growth, and margins.
+
+    Combines two Alpha Vantage endpoints — EARNINGS (reported vs estimated EPS per
+    quarter) and INCOME_STATEMENT (revenue, gross and operating income) — into one
+    plain-language summary of how the last few quarters actually went. Costs 2 of the
+    ~25 free requests per day, so it only runs for 'earnings' sub-questions.
+    """
+    src = "Alpha Vantage"
+    if not settings.alphavantage_api_key:
+        return {"text": f"{symbol}: quarterly results unavailable (no ALPHAVANTAGE_API_KEY set).", "source": src}
+    key = settings.alphavantage_api_key
+    parts: list[str] = []
+
+    # --- EPS vs estimates over the last four quarters ---
+    try:
+        d = _get("https://www.alphavantage.co/query",
+                 {"function": "EARNINGS", "symbol": symbol, "apikey": key})
+        quarters = d.get("quarterlyEarnings", []) if isinstance(d, dict) else []
+        if quarters:
+            rows, beats = [], 0
+            for q in quarters[:4]:
+                rep, est = _num(q.get("reportedEPS")), _num(q.get("estimatedEPS"))
+                surprise = _num(q.get("surprisePercentage"))
+                if rep is not None and est is not None:
+                    verdict = "beat" if rep > est else ("missed" if rep < est else "met")
+                    beats += verdict == "beat"
+                    pct = f" ({surprise:+.1f}%)" if surprise is not None else ""
+                    rows.append(f"{q.get('fiscalDateEnding')}: EPS {rep} vs est {est} — {verdict}{pct}")
+            if rows:
+                parts.append(
+                    f"Last {len(rows)} quarters (most recent first): " + "; ".join(rows)
+                    + f". Beat estimates in {beats} of {len(rows)}."
+                )
+        else:
+            parts.append("No quarterly EPS history returned.")
+    except Exception as exc:  # noqa: BLE001
+        parts.append(f"EPS history unavailable ({exc}).")
+
+    # --- Revenue growth and margins from the income statement ---
+    try:
+        time.sleep(1.0)  # be gentle with the free tier
+        d = _get("https://www.alphavantage.co/query",
+                 {"function": "INCOME_STATEMENT", "symbol": symbol, "apikey": key})
+        reports = d.get("quarterlyReports", []) if isinstance(d, dict) else []
+        if reports:
+            latest = reports[0]
+            rev = _num(latest.get("totalRevenue"))
+            gross = _num(latest.get("grossProfit"))
+            op = _num(latest.get("operatingIncome"))
+            bits = [f"Latest quarter ({latest.get('fiscalDateEnding')}): revenue {_big_money(latest.get('totalRevenue'))}"]
+            # Year-over-year uses the same quarter one year earlier (4 quarters back).
+            if len(reports) > 4:
+                prior = _num(reports[4].get("totalRevenue"))
+                if rev and prior:
+                    bits.append(f"revenue YoY {(rev / prior - 1) * 100:+.1f}%")
+            if rev and gross:
+                bits.append(f"gross margin {gross / rev * 100:.1f}%")
+            if rev and op:
+                bits.append(f"operating margin {op / rev * 100:.1f}%")
+            parts.append(", ".join(bits) + ".")
+        else:
+            parts.append("No quarterly income statements returned.")
+    except Exception as exc:  # noqa: BLE001
+        parts.append(f"Income statement unavailable ({exc}).")
+
+    return {"text": f"{symbol.upper()} quarterly results — " + " ".join(parts), "source": src}
 
 
 # --- News headlines from RSS feeds (dated, from real outlets) ---
