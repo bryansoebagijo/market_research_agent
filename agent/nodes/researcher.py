@@ -48,27 +48,35 @@ class BatchFindings(BaseModel):
     )
 
 
-def _gather(subq: SubQuestion, plan_tickers: list[str]) -> list[tuple[str, str]]:
-    """Run the appropriate tools for one sub-question. Returns (text, source) pairs."""
+def _gather(
+    subq: SubQuestion, plan_tickers: list[str], metrics: dict
+) -> list[tuple[str, str]]:
+    """Run the appropriate tools for one sub-question. Returns (text, source) pairs.
+
+    Any structured numbers a tool returns are collected into `metrics[ticker]` so the UI
+    can chart them — the same fetch serves both the LLM's text findings and the charts.
+    """
     focus = subq.focus.lower()
     # Prefer the sub-question's own tickers; fall back to the plan's.
     tickers = subq.tickers or plan_tickers
     results: list[tuple[str, str]] = []
 
+    def record(ticker: str, out: dict) -> None:
+        """Keep a tool's text/source for the LLM and stash its numbers for charting."""
+        results.append((out["text"], out["source"]))
+        if out.get("data"):
+            metrics.setdefault(ticker.upper(), {}).update(out["data"])
+
     for t in tickers:
         kind = classify_ticker(t)
         if focus == "price":
-            snap = crypto_snapshot(t) if kind == "crypto" else stock_snapshot(t)
-            results.append((snap["text"], snap["source"]))
+            record(t, crypto_snapshot(t) if kind == "crypto" else stock_snapshot(t))
         elif focus == "technicals":
-            tech = crypto_technicals(t) if kind == "crypto" else stock_technicals(t)
-            results.append((tech["text"], tech["source"]))
+            record(t, crypto_technicals(t) if kind == "crypto" else stock_technicals(t))
         elif focus == "fundamentals" and kind == "stock":
-            f = stock_fundamentals(t)
-            results.append((f["text"], f["source"]))
+            record(t, stock_fundamentals(t))
         elif focus == "earnings" and kind == "stock":
-            e = stock_earnings(t)
-            results.append((e["text"], e["source"]))
+            record(t, stock_earnings(t))
 
     # News: pull dated headlines from real outlets (RSS), split by market type, so the
     # findings are actual recent news rather than undated web snippets.
@@ -101,8 +109,9 @@ def researcher_node(state: AgentState) -> dict:
     # 1. Gather raw tool data for every sub-question (no LLM yet — just APIs).
     blocks: list[str] = []
     sources_per: list[str] = []
+    metrics: dict = {}
     for i, sq in enumerate(targets, start=1):
-        raw = _gather(sq, plan.tickers)
+        raw = _gather(sq, plan.tickers, metrics)
         raw_text = "\n".join(f"[{src}] {text}" for text, src in raw)
         blocks.append(f"Sub-question {i}: {sq.question}\nData:\n{raw_text}")
         sources_per.append(", ".join(sorted({src for _, src in raw})))
@@ -122,4 +131,4 @@ def researcher_node(state: AgentState) -> dict:
             Evidence(subquestion=sq.question, finding=finding, source=sources_per[i])
         )
 
-    return {"evidence": evidence}
+    return {"evidence": evidence, "metrics": metrics}

@@ -69,6 +69,20 @@ def compute_ema(values: list[float], period: int) -> float | None:
     return ema
 
 
+def _trend_metrics(closes: list[float]) -> dict:
+    """Structured indicator values for charting (empty if history is too short)."""
+    ema13, ema21, rsi = compute_ema(closes, 13), compute_ema(closes, 21), compute_rsi(closes, 14)
+    if ema13 is None or ema21 is None or rsi is None:
+        return {}
+    return {
+        "closes": [round(c, 4) for c in closes[-60:]],  # last 60 points for a price chart
+        "rsi": round(rsi, 1),
+        "ema13": round(ema13, 4),
+        "ema21": round(ema21, 4),
+        "price": round(closes[-1], 4),
+    }
+
+
 def _trend_read(closes: list[float]) -> str:
     """Turn a chronological close series into a plain-language technical read."""
     price = closes[-1]
@@ -140,7 +154,8 @@ def crypto_technicals(symbol: str) -> dict:
         closes = [p[1] for p in chart.get("prices", [])] if isinstance(chart, dict) else []
         if len(closes) < 22:
             return {"text": f"{symbol}: not enough history for indicators.", "source": src}
-        return {"text": f"{symbol.upper()} technicals — {_trend_read(closes)}", "source": f"{src} (computed)"}
+        return {"text": f"{symbol.upper()} technicals — {_trend_read(closes)}",
+                "source": f"{src} (computed)", "data": _trend_metrics(closes)}
     except Exception as exc:  # noqa: BLE001
         return {"text": f"Crypto technicals unavailable for {symbol} ({exc}).", "source": src}
 
@@ -165,7 +180,13 @@ def stock_snapshot(symbol: str) -> dict:
             f"52w {wk.get('low')}–{wk.get('high')}"
         )
         time.sleep(1.5)  # Twelve Data free tier ~8 req/min
-        return {"text": text, "source": f"{src} (live)"}
+        data = {
+            "price": _num(d.get("close")),
+            "change_pct": _num(d.get("percent_change")),
+            "week52_low": _num(wk.get("low")),
+            "week52_high": _num(wk.get("high")),
+        }
+        return {"text": text, "source": f"{src} (live)", "data": data}
     except Exception as exc:  # noqa: BLE001
         return {"text": f"Stock data unavailable for {symbol} ({exc}).", "source": src}
 
@@ -188,7 +209,8 @@ def stock_technicals(symbol: str) -> dict:
         if len(closes) < 22:
             return {"text": f"{symbol}: not enough history for indicators.", "source": src}
         time.sleep(1.5)
-        return {"text": f"{symbol.upper()} technicals — {_trend_read(closes)}", "source": f"{src} (computed)"}
+        return {"text": f"{symbol.upper()} technicals — {_trend_read(closes)}",
+                "source": f"{src} (computed)", "data": _trend_metrics(closes)}
     except Exception as exc:  # noqa: BLE001
         return {"text": f"Stock technicals unavailable for {symbol} ({exc}).", "source": src}
 
@@ -269,6 +291,7 @@ def stock_earnings(symbol: str) -> dict:
         return {"text": f"{symbol}: quarterly results unavailable (no ALPHAVANTAGE_API_KEY set).", "source": src}
     key = settings.alphavantage_api_key
     parts: list[str] = []
+    data: dict = {}
 
     # --- EPS vs estimates over the last four quarters ---
     try:
@@ -276,7 +299,7 @@ def stock_earnings(symbol: str) -> dict:
                  {"function": "EARNINGS", "symbol": symbol, "apikey": key})
         quarters = d.get("quarterlyEarnings", []) if isinstance(d, dict) else []
         if quarters:
-            rows, beats = [], 0
+            rows, beats, eps_series = [], 0, []
             for q in quarters[:4]:
                 rep, est = _num(q.get("reportedEPS")), _num(q.get("estimatedEPS"))
                 surprise = _num(q.get("surprisePercentage"))
@@ -285,6 +308,12 @@ def stock_earnings(symbol: str) -> dict:
                     beats += verdict == "beat"
                     pct = f" ({surprise:+.1f}%)" if surprise is not None else ""
                     rows.append(f"{q.get('fiscalDateEnding')}: EPS {rep} vs est {est} — {verdict}{pct}")
+                    eps_series.append(
+                        {"quarter": q.get("fiscalDateEnding"), "reported": rep,
+                         "estimated": est, "surprise_pct": surprise}
+                    )
+            # Oldest-first reads naturally left-to-right on a chart.
+            data["eps_quarters"] = list(reversed(eps_series))
             if rows:
                 parts.append(
                     f"Last {len(rows)} quarters (most recent first): " + "; ".join(rows)
@@ -317,12 +346,27 @@ def stock_earnings(symbol: str) -> dict:
             if rev and op:
                 bits.append(f"operating margin {op / rev * 100:.1f}%")
             parts.append(", ".join(bits) + ".")
+
+            # Revenue and margins for the last 8 quarters, oldest first, for charting.
+            series = []
+            for r in reversed(reports[:8]):
+                rv, gp, oi = (_num(r.get("totalRevenue")), _num(r.get("grossProfit")),
+                              _num(r.get("operatingIncome")))
+                if rv:
+                    series.append({
+                        "quarter": r.get("fiscalDateEnding"),
+                        "revenue": rv,
+                        "gross_margin": round(gp / rv * 100, 1) if gp else None,
+                        "operating_margin": round(oi / rv * 100, 1) if oi else None,
+                    })
+            data["revenue_quarters"] = series
         else:
             parts.append("No quarterly income statements returned.")
     except Exception as exc:  # noqa: BLE001
         parts.append(f"Income statement unavailable ({exc}).")
 
-    return {"text": f"{symbol.upper()} quarterly results — " + " ".join(parts), "source": src}
+    return {"text": f"{symbol.upper()} quarterly results — " + " ".join(parts),
+            "source": src, "data": data}
 
 
 # --- News headlines from RSS feeds (dated, from real outlets) ---

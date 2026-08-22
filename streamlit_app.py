@@ -13,6 +13,7 @@ The app calls the agent directly (it's Python too) — there's no separate backe
 
 import uuid
 
+import pandas as pd
 import streamlit as st
 from langgraph.types import Command
 
@@ -99,11 +100,78 @@ def render_plan(plan) -> None:
             )
 
 
+def render_charts(metrics: dict) -> None:
+    """Chart the structured numbers the tools collected, one tab per ticker.
+
+    These are the same fetches that produced the written findings, so charting costs no
+    extra API calls — it just shows the numbers instead of describing them.
+    """
+    tickers = [t for t, m in metrics.items() if m]
+    if not tickers:
+        return
+
+    st.subheader("Charts")
+    for ticker, tab in zip(tickers, st.tabs(tickers)):
+        m = metrics[ticker]
+        with tab:
+            # --- price history + where price sits vs its moving averages ---
+            closes = m.get("closes")
+            if closes:
+                df = pd.DataFrame({"close": closes})
+                st.caption(f"{ticker} — recent closes ({len(closes)} periods)")
+                st.line_chart(df, height=220)
+
+            cols = st.columns(3)
+            if m.get("rsi") is not None:
+                rsi = m["rsi"]
+                zone = "overbought" if rsi >= 70 else "oversold" if rsi <= 30 else "neutral"
+                cols[0].metric("RSI(14)", f"{rsi:.0f}", zone)
+                cols[0].progress(min(max(rsi / 100, 0.0), 1.0))
+            if m.get("ema13") and m.get("ema21"):
+                gap = (m["ema13"] / m["ema21"] - 1) * 100
+                cols[1].metric("EMA13 vs EMA21", f"{gap:+.2f}%",
+                               "bullish" if gap > 0 else "bearish")
+            if m.get("change_pct") is not None:
+                cols[2].metric("Change today", f"{m['change_pct']:+.2f}%")
+
+            # --- position within the 52-week range ---
+            low, high, price = m.get("week52_low"), m.get("week52_high"), m.get("price")
+            if low and high and price and high > low:
+                pos = (price - low) / (high - low)
+                st.caption(
+                    f"52-week range — ${low:,.2f} … **${price:,.2f}** … ${high:,.2f} "
+                    f"({pos * 100:.0f}% of the way up)"
+                )
+                st.progress(min(max(pos, 0.0), 1.0))
+
+            # --- EPS: reported vs estimated, by quarter ---
+            eps = m.get("eps_quarters")
+            if eps:
+                df = pd.DataFrame(eps).set_index("quarter")[["reported", "estimated"]]
+                st.caption(f"{ticker} — quarterly EPS: reported vs estimated")
+                st.bar_chart(df, height=240)
+                beats = sum(1 for q in eps if q["reported"] > q["estimated"])
+                st.caption(f"Beat estimates in **{beats} of {len(eps)}** quarters shown.")
+
+            # --- revenue trend and margins ---
+            rev = m.get("revenue_quarters")
+            if rev:
+                df = pd.DataFrame(rev).set_index("quarter")
+                st.caption(f"{ticker} — quarterly revenue")
+                st.bar_chart(df[["revenue"]], height=240)
+                margins = [c for c in ("gross_margin", "operating_margin") if c in df]
+                if margins and df[margins].notna().any().any():
+                    st.caption("Margins (%)")
+                    st.line_chart(df[margins], height=200)
+
+
 def render_results(state: dict) -> None:
     """Render evidence, critic verdict, report and analyst view."""
     plan = state.get("plan")
     if plan:
         render_plan(plan)
+
+    render_charts(state.get("metrics") or {})
 
     evidence = state.get("evidence", [])
     if evidence:

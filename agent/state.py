@@ -12,6 +12,18 @@ from typing import Annotated, TypedDict
 from pydantic import BaseModel, Field
 
 
+def merge_metrics(left: dict, right: dict) -> dict:
+    """Reducer for `metrics`: merge per-ticker dicts instead of overwriting them.
+
+    A second research pass (after the critic loops back) should add to what the first
+    pass measured, not replace it.
+    """
+    merged = {**(left or {})}
+    for ticker, values in (right or {}).items():
+        merged[ticker] = {**merged.get(ticker, {}), **values}
+    return merged
+
+
 class SubQuestion(BaseModel):
     """One focused research sub-question the planner produced."""
 
@@ -90,6 +102,8 @@ class AgentState(TypedDict, total=False):
     plan: ResearchPlan            # produced by the planner
     # `add` reducer: researcher nodes append evidence instead of overwriting it.
     evidence: Annotated[list[Evidence], add]
+    # Structured numbers behind the findings, keyed by ticker, for charting in the UI.
+    metrics: Annotated[dict, merge_metrics]
     critique: str                 # the critic's assessment
     complete: bool                # critic says coverage is sufficient
     followups: list[SubQuestion]  # critic's targeted gap questions (drives the loop)
