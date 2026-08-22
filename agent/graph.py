@@ -99,11 +99,14 @@ def build_graph(review: bool = False, checkpointer: bool | None = None):
     # A checkpointer persists state between the interrupt and the resume. Our state
     # holds Pydantic models, so the serializer must be told they're allowed to be
     # restored from a checkpoint (otherwise LangGraph warns and will later refuse).
+    # Every Pydantic model that can appear in the state must be listed here, or it
+    # comes back from a checkpoint as a plain dict instead of the model.
     serde = JsonPlusSerializer(
         allowed_msgpack_modules=[
             ("agent.state", "ResearchPlan"),
             ("agent.state", "SubQuestion"),
             ("agent.state", "CriticVerdict"),
+            ("agent.state", "AnalystView"),
         ]
     )
     return graph.compile(checkpointer=MemorySaver(serde=serde))

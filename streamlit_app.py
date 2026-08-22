@@ -49,6 +49,19 @@ def get_agent(review: bool):
     return build_graph(review=review, checkpointer=True)
 
 
+def field(obj, name, default=None):
+    """Read a field whether `obj` is a Pydantic model or a plain dict.
+
+    State restored from a checkpoint can come back as dicts, so rendering must not
+    assume attribute access.
+    """
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
 def stance_icon(stance: str) -> str:
     """Pick an icon from the first stance word we recognise."""
     low = stance.lower()
@@ -74,13 +87,16 @@ def run_stream(agent, payload, config, status) -> dict | None:
 
 def render_plan(plan) -> None:
     st.subheader("Research plan")
-    st.caption(plan.rationale)
+    st.caption(field(plan, "rationale", ""))
     cols = st.columns([1, 4])
-    cols[0].metric("Tickers", ", ".join(plan.tickers) or "—")
+    cols[0].metric("Tickers", ", ".join(field(plan, "tickers", []) or []) or "—")
     with cols[1]:
-        for i, sq in enumerate(plan.subquestions, start=1):
-            tk = f" · {', '.join(sq.tickers)}" if sq.tickers else ""
-            st.markdown(f"**{i}. `{sq.focus}`{tk}** — {sq.question}")
+        for i, sq in enumerate(field(plan, "subquestions", []) or [], start=1):
+            tickers = field(sq, "tickers", []) or []
+            tk = f" · {', '.join(tickers)}" if tickers else ""
+            st.markdown(
+                f"**{i}. `{field(sq, 'focus', '?')}`{tk}** — {field(sq, 'question', '')}"
+            )
 
 
 def render_results(state: dict) -> None:
@@ -110,21 +126,21 @@ def render_results(state: dict) -> None:
 
     view = state.get("analyst_view")
     if view:
+        stance = field(view, "stance", "—")
         st.subheader("Analyst view")
         a, b, c = st.columns(3)
-        a.metric("Stance", f"{stance_icon(view.stance)} {view.stance}")
-        b.metric("Conviction", view.conviction)
-        c.metric("Horizon", view.horizon)
+        a.metric("Stance", f"{stance_icon(stance)} {stance}")
+        b.metric("Conviction", field(view, "conviction", "—"))
+        c.metric("Horizon", field(view, "horizon", "—"))
 
-        st.markdown("**Why**")
-        for p in view.reasoning:
-            st.markdown(f"- {p}")
-        st.markdown("**What would change this view**")
-        for p in view.what_would_change_it:
-            st.markdown(f"- {p}")
-        st.markdown("**Key risks**")
-        for p in view.key_risks:
-            st.markdown(f"- {p}")
+        for heading, key in (
+            ("**Why**", "reasoning"),
+            ("**What would change this view**", "what_would_change_it"),
+            ("**Key risks**", "key_risks"),
+        ):
+            st.markdown(heading)
+            for p in field(view, key, []) or []:
+                st.markdown(f"- {p}")
         st.info(
             "Analyst view: an informational interpretation of the evidence, produced by "
             "a language model with no validated track record. Not financial advice, not "

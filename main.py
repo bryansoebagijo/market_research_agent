@@ -94,20 +94,24 @@ def print_results(result: dict) -> None:
     if view:
         from agent.nodes.analyst import DISCLAIMER as ANALYST_DISCLAIMER
 
+        # State restored from a checkpoint (--review) can arrive as a dict, so read
+        # fields in a way that works for both a model and a dict.
+        def f(name, default=""):
+            return view.get(name, default) if isinstance(view, dict) else getattr(view, name, default)
+
         print("\n" + LINE)
         print("ANALYST VIEW (professional-style interpretation)")
         print(LINE)
-        print(f"Stance     : {view.stance}")
-        print(f"Conviction : {view.conviction}   |   Horizon: {view.horizon}")
-        print("\nWhy:")
-        for point in view.reasoning:
-            print(f"  - {point}")
-        print("\nWhat would change this view:")
-        for point in view.what_would_change_it:
-            print(f"  - {point}")
-        print("\nKey risks:")
-        for point in view.key_risks:
-            print(f"  - {point}")
+        print(f"Stance     : {f('stance')}")
+        print(f"Conviction : {f('conviction')}   |   Horizon: {f('horizon')}")
+        for heading, key in (
+            ("Why:", "reasoning"),
+            ("What would change this view:", "what_would_change_it"),
+            ("Key risks:", "key_risks"),
+        ):
+            print(f"\n{heading}")
+            for point in f(key, []) or []:
+                print(f"  - {point}")
         print(ANALYST_DISCLAIMER)
     print(LINE)
 
