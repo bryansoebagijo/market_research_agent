@@ -13,6 +13,7 @@ from ui_common import (
     money,
     pct,
     render_news,
+    render_protocol_history,
     render_signal,
     render_watchlist_editor,
     run_agent_analysis,
@@ -89,11 +90,26 @@ def _protocol_table(rows: list[dict]) -> pd.DataFrame:
     ])
 
 
+def _selected_row(rows: list[dict], key: str):
+    """Render a selectable table and return the row the user clicked, if any."""
+    event = st.dataframe(
+        _protocol_table(rows),
+        hide_index=True,
+        use_container_width=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=key,
+    )
+    picked = (event.selection.rows or []) if hasattr(event, "selection") else []
+    return rows[picked[0]] if picked else None
+
+
 with rev_tab:
     try:
         rows = cached_top_protocols("revenue_24h", 5)
         if rows:
-            st.dataframe(_protocol_table(rows), hide_index=True, use_container_width=True)
+            st.caption("Click a row to see that project's monthly history.")
+            chosen = _selected_row(rows, "rev_table")
             st.bar_chart(
                 pd.DataFrame(
                     {"revenue 24h ($M)": [r["revenue_24h"] / 1e6 for r in rows]},
@@ -101,6 +117,9 @@ with rev_tab:
                 ),
                 height=220,
             )
+            if chosen:
+                st.divider()
+                render_protocol_history(chosen["name"], chosen.get("slug", ""), "revenue")
         else:
             st.info("Revenue data unavailable right now.")
     except Exception as exc:  # noqa: BLE001
@@ -110,7 +129,8 @@ with tvl_tab:
     try:
         rows = cached_top_protocols("tvl", 5)
         if rows:
-            st.dataframe(_protocol_table(rows), hide_index=True, use_container_width=True)
+            st.caption("Click a row to see that project's monthly history.")
+            chosen = _selected_row(rows, "tvl_table")
             st.bar_chart(
                 pd.DataFrame(
                     {"TVL ($B)": [r["tvl"] / 1e9 for r in rows]},
@@ -118,6 +138,9 @@ with tvl_tab:
                 ),
                 height=220,
             )
+            if chosen:
+                st.divider()
+                render_protocol_history(chosen["name"], chosen.get("slug", ""), "tvl")
         else:
             st.info("TVL data unavailable right now.")
     except Exception as exc:  # noqa: BLE001

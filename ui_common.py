@@ -8,6 +8,7 @@ hammer the free-tier APIs.
 
 import uuid
 
+import pandas as pd
 import streamlit as st
 
 from agent import market_data as md
@@ -67,6 +68,60 @@ def cached_growing_protocols(limit: int = 5):
 @st.cache_data(ttl=21600, show_spinner=False)
 def cached_stock_growth(symbols: tuple[str, ...]):
     return md.stock_growth_ranking(list(symbols))
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_protocol_history(slug: str, months: int = 12):
+    return md.protocol_history(slug, months)
+
+
+def render_protocol_history(name: str, slug: str, primary: str = "revenue") -> None:
+    """Monthly revenue and TVL history for one protocol, primary metric first."""
+    if not slug:
+        st.info(f"No DefiLlama slug for {name}, so history isn't available.")
+        return
+
+    with st.spinner(f"Loading {name} history…"):
+        hist = cached_protocol_history(slug, 12)
+
+    rev = hist.get("revenue_monthly") or []
+    tvl = hist.get("tvl_monthly") or []
+    if not rev and not tvl:
+        st.info(f"No monthly history returned for {name}.")
+        return
+
+    def rev_chart():
+        if rev:
+            st.caption(f"{name} — monthly revenue (last 12 months, current month excluded)")
+            st.line_chart(pd.DataFrame(rev).set_index("month")[["revenue"]], height=260)
+            first, last = rev[0]["revenue"], rev[-1]["revenue"]
+            if first:
+                st.caption(
+                    f"{rev[0]['month']} → {rev[-1]['month']}: "
+                    f"{money(first)} → {money(last)} ({(last / first - 1) * 100:+.1f}%)"
+                )
+        else:
+            st.info("No revenue history for this project.")
+
+    def tvl_chart():
+        if tvl:
+            st.caption(f"{name} — monthly TVL (month-end level)")
+            st.line_chart(pd.DataFrame(tvl).set_index("month")[["tvl"]], height=260)
+            first, last = tvl[0]["tvl"], tvl[-1]["tvl"]
+            if first:
+                st.caption(
+                    f"{tvl[0]['month']} → {tvl[-1]['month']}: "
+                    f"{money(first)} → {money(last)} ({(last / first - 1) * 100:+.1f}%)"
+                )
+        else:
+            st.info("No TVL history for this project (not every project locks value).")
+
+    if primary == "revenue":
+        rev_chart()
+        tvl_chart()
+    else:
+        tvl_chart()
+        rev_chart()
 
 
 @st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)

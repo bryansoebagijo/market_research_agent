@@ -11,6 +11,7 @@ TTL, so the caching policy lives with the UI rather than being baked in.
 
 import re
 from collections import defaultdict
+from datetime import datetime, timezone
 
 import httpx
 
@@ -336,6 +337,67 @@ def top_protocols(by: str = "revenue_24h", limit: int = 5) -> list[dict]:
     ]
     rows.sort(key=lambda r: r[by], reverse=True)
     return rows[:limit]
+
+
+def _month_key(timestamp) -> str | None:
+    """'YYYY-MM' for a unix timestamp."""
+    try:
+        return datetime.fromtimestamp(int(timestamp), tz=timezone.utc).strftime("%Y-%m")
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def protocol_history(slug: str, months: int = 12) -> dict:
+    """Monthly TVL and revenue history for one protocol.
+
+    The two series aggregate differently and mixing that up would be misleading:
+      * TVL is a level (a stock), so a month's value is its LAST reading.
+      * Revenue is a flow, so a month's value is the SUM of that month's days.
+
+    The current, partial month is dropped from revenue — a month that's three days old
+    would otherwise look like a collapse next to complete months.
+    """
+    out: dict = {"slug": slug, "tvl_monthly": [], "revenue_monthly": []}
+    if not slug:
+        return out
+    this_month = datetime.now(tz=timezone.utc).strftime("%Y-%m")
+
+    # --- TVL: last reading of each month ---
+    try:
+        d = httpx.get(f"https://api.llama.fi/protocol/{slug}", timeout=45, headers=HEADERS).json()
+        last_of_month: dict[str, float] = {}
+        for point in d.get("tvl") or []:
+            key = _month_key(point.get("date"))
+            value = point.get("totalLiquidityUSD")
+            if key and value is not None:
+                last_of_month[key] = float(value)  # later points overwrite earlier ones
+        out["tvl_monthly"] = [
+            {"month": k, "tvl": v} for k, v in sorted(last_of_month.items())
+        ][-months:]
+    except Exception as exc:  # noqa: BLE001
+        out["tvl_error"] = str(exc)[:100]
+
+    # --- Revenue: sum of each month's days ---
+    try:
+        d = httpx.get(
+            f"https://api.llama.fi/summary/fees/{slug}?dataType=dailyRevenue",
+            timeout=45, headers=HEADERS,
+        ).json()
+        totals: dict[str, float] = defaultdict(float)
+        for point in d.get("totalDataChart") or []:
+            if not isinstance(point, list) or len(point) < 2:
+                continue
+            key = _month_key(point[0])
+            if key and point[1] is not None:
+                totals[key] += float(point[1])
+        totals.pop(this_month, None)  # drop the incomplete current month
+        out["revenue_monthly"] = [
+            {"month": k, "revenue": v} for k, v in sorted(totals.items())
+        ][-months:]
+    except Exception as exc:  # noqa: BLE001
+        out["revenue_error"] = str(exc)[:100]
+
+    return out
 
 
 def coin_overview(symbol: str) -> dict:
