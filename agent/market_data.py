@@ -174,6 +174,50 @@ def trending_coins(limit: int = 7) -> list[dict]:
     return out
 
 
+# Narrative ranking floor. Without one the list fills with micro-cap categories posting
+# +800% on a few thousand dollars of market cap — technically the biggest movers, but
+# noise rather than a narrative anyone is actually trading.
+MIN_NARRATIVE_MARKET_CAP = 500_000_000
+
+
+def trending_narratives(limit: int = 5, min_market_cap: float = MIN_NARRATIVE_MARKET_CAP) -> list[dict]:
+    """Hottest crypto sectors right now, ranked by 24h change in sector market cap.
+
+    CoinGecko groups coins into categories — Restaking, AI Agents, RWA and so on — which
+    is as close as the free data gets to the "narratives" traders talk about. Sector
+    market-cap change is used rather than a single coin's move, so a narrative only
+    ranks when the whole basket is moving.
+    """
+    rows = _get("https://api.coingecko.com/api/v3/coins/categories")
+    if not isinstance(rows, list):
+        return []
+    candidates = [
+        c for c in rows
+        if (c.get("market_cap") or 0) >= min_market_cap
+        and c.get("market_cap_change_24h") is not None
+    ]
+    candidates.sort(key=lambda c: c["market_cap_change_24h"], reverse=True)
+
+    out = []
+    for c in candidates[:limit]:
+        # top_3_coins_id holds readable ids ("ethereum"); fall back to parsing the
+        # image URLs in top_3_coins when the id list is absent.
+        coins = c.get("top_3_coins_id") or []
+        if not coins:
+            coins = [
+                url.split("/")[-1].split(".")[0].replace("-", " ")
+                for url in (c.get("top_3_coins") or [])
+            ]
+        out.append({
+            "name": c.get("name"),
+            "change_24h": c.get("market_cap_change_24h"),
+            "market_cap": c.get("market_cap"),
+            "volume_24h": c.get("volume_24h"),
+            "top_coins": [str(x).replace("-", " ").title() for x in coins[:3]],
+        })
+    return out
+
+
 def coin_tvl(symbol: str) -> dict | None:
     """Total value locked for a chain whose native token is `symbol`, if any.
 

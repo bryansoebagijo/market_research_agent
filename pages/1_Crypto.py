@@ -10,6 +10,7 @@ from ui_common import (
     cached_open_interest,
     cached_top_protocols,
     cached_trending_coins,
+    cached_trending_narratives,
     money,
     pct,
     render_news,
@@ -199,8 +200,42 @@ with growth_tab:
 
 st.divider()
 
-# ---------------- trending ----------------
-st.subheader("Trending")
+# ---------------- trending narratives ----------------
+st.subheader("Trending narratives")
+st.caption(
+    "Hottest sectors by 24h change in **sector** market cap, so a narrative only ranks "
+    "when the whole basket moves — not one coin. Categories under $500M are excluded, "
+    "or micro-cap sectors posting +800% on a few thousand dollars drown out real trends."
+)
+try:
+    narratives = cached_trending_narratives(5)
+    if narratives:
+        ncols = st.columns(len(narratives))
+        for col, n in zip(ncols, narratives):
+            col.metric(
+                n["name"][:22],
+                pct(n["change_24h"]),
+                help=f"Sector market cap {money(n['market_cap'])} · "
+                     f"24h volume {money(n['volume_24h'])}",
+            )
+            if n["top_coins"]:
+                col.caption(" · ".join(n["top_coins"]))
+        st.bar_chart(
+            pd.DataFrame(
+                {"24h sector market cap change %": [n["change_24h"] for n in narratives]},
+                index=[n["name"][:26] for n in narratives],
+            ),
+            height=220,
+        )
+    else:
+        st.info("Narrative data unavailable right now.")
+except Exception as exc:  # noqa: BLE001
+    st.warning(f"Couldn't load trending narratives: {exc}")
+
+st.divider()
+
+# ---------------- trending coins ----------------
+st.subheader("Trending coins")
 try:
     trend = cached_trending_coins(7)
     if trend:

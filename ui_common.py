@@ -129,6 +129,11 @@ def cached_trending_stocks(limit: int = 7):
     return md.trending_stocks(limit)
 
 
+@st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)
+def cached_trending_narratives(limit: int = 5):
+    return md.trending_narratives(limit)
+
+
 @st.cache_data(ttl=TTL_DETAIL, show_spinner=False)
 def cached_coin_overview(symbol: str):
     return md.coin_overview(symbol)
