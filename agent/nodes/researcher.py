@@ -19,6 +19,7 @@ from agent.llm import get_llm
 from agent.state import AgentState, Evidence, SubQuestion
 from agent.tools import (
     classify_ticker,
+    crypto_protocol_fundamentals,
     crypto_snapshot,
     crypto_technicals,
     fetch_news,
@@ -75,6 +76,9 @@ def _gather(
             record(t, crypto_technicals(t) if kind == "crypto" else stock_technicals(t))
         elif focus == "fundamentals" and kind == "stock":
             record(t, stock_fundamentals(t))
+        elif focus == "fundamentals" and kind == "crypto":
+            # Crypto's analogue: protocol revenue and TVL for DeFi tokens.
+            record(t, crypto_protocol_fundamentals(t))
         elif focus == "earnings" and kind == "stock":
             record(t, stock_earnings(t))
 

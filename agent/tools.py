@@ -24,9 +24,41 @@ COMMON_CRYPTO = {
 }
 
 
+@lru_cache(maxsize=1)
+def _known_crypto_symbols() -> frozenset[str]:
+    """Tickers of the largest coins plus every DeFi protocol token, fetched once.
+
+    A hardcoded list can't keep up with crypto — it silently misrouted tokens like AAVE
+    to the stock APIs, which then reported "no data" for everything. Building the set
+    from live sources fixes that class of bug rather than one symbol at a time.
+    """
+    symbols = set(COMMON_CRYPTO)
+    try:
+        markets = _get(
+            "https://api.coingecko.com/api/v3/coins/markets",
+            {"vs_currency": "usd", "order": "market_cap_desc", "per_page": 250, "page": 1},
+        )
+        for m in markets if isinstance(markets, list) else []:
+            if m.get("symbol"):
+                symbols.add(m["symbol"].upper())
+    except Exception:  # noqa: BLE001 - fall back to the static list
+        pass
+    try:
+        for p in _get("https://api.llama.fi/protocols") or []:
+            sym = (p.get("symbol") or "").upper()
+            if sym and sym != "-" and (p.get("tvl") or 0) > 0:
+                symbols.add(sym)
+    except Exception:  # noqa: BLE001
+        pass
+    return frozenset(symbols)
+
+
 def classify_ticker(symbol: str) -> str:
-    """'crypto' or 'stock' — decides which market tool to use for a ticker."""
-    return "crypto" if symbol.upper() in COMMON_CRYPTO else "stock"
+    """'crypto' or 'stock' — decides which market tools to use for a ticker."""
+    sym = symbol.upper()
+    if sym in COMMON_CRYPTO:      # fast path, no network
+        return "crypto"
+    return "crypto" if sym in _known_crypto_symbols() else "stock"
 
 
 def _get(url: str, params: dict | None = None, timeout: float = 20.0) -> dict | list:
@@ -83,6 +115,46 @@ def _trend_metrics(closes: list[float]) -> dict:
     }
 
 
+def _chart_pattern(closes: list[float], lookback: int = 30) -> str:
+    """Structural read of the chart: range position, breakouts, and swing-low trend.
+
+    Uses closing prices only — none of the free sources give clean daily intraday
+    highs and lows — so levels are close-based approximations, not wick-accurate.
+    """
+    if len(closes) < lookback + 5:
+        return ""
+    price = closes[-1]
+    window = closes[-lookback - 1:-1]          # prior period, excluding today
+    resistance, support = max(window), min(window)
+
+    notes = []
+    if price > resistance:
+        notes.append(f"broken above its {lookback}-day high (${resistance:,.2f})")
+    elif price < support:
+        notes.append(f"broken below its {lookback}-day low (${support:,.2f})")
+    else:
+        span = resistance - support
+        pos = (price - support) / span * 100 if span else 50
+        notes.append(
+            f"ranging between ${support:,.2f} and ${resistance:,.2f} "
+            f"({pos:.0f}% of the range)"
+        )
+
+    # Swing lows: a local minimum with higher closes on both sides. Rising swing lows
+    # are the classic sign of an uptrend holding; falling ones the opposite.
+    swings = [
+        closes[i] for i in range(2, len(closes) - 2)
+        if closes[i] < closes[i - 1] and closes[i] < closes[i - 2]
+        and closes[i] < closes[i + 1] and closes[i] < closes[i + 2]
+    ]
+    if len(swings) >= 2:
+        if swings[-1] > swings[-2]:
+            notes.append("making higher lows")
+        elif swings[-1] < swings[-2]:
+            notes.append("making lower lows")
+    return "; ".join(notes)
+
+
 def _trend_read(closes: list[float]) -> str:
     """Turn a chronological close series into a plain-language technical read."""
     price = closes[-1]
@@ -96,10 +168,12 @@ def _trend_read(closes: list[float]) -> str:
     else:
         momentum = "mixed / no clear trend"
     rsi_note = "overbought" if rsi >= 70 else "oversold" if rsi <= 30 else "neutral"
-    return (
+    read = (
         f"RSI(14) {rsi:.0f} ({rsi_note}); EMA13 {ema13:,.2f} vs EMA21 {ema21:,.2f}; "
         f"momentum {momentum}"
     )
+    pattern = _chart_pattern(closes)
+    return f"{read}; chart structure: {pattern}" if pattern else read
 
 
 @lru_cache(maxsize=64)
@@ -158,6 +232,87 @@ def crypto_technicals(symbol: str) -> dict:
                 "source": f"{src} (computed)", "data": _trend_metrics(closes)}
     except Exception as exc:  # noqa: BLE001
         return {"text": f"Crypto technicals unavailable for {symbol} ({exc}).", "source": src}
+
+
+@lru_cache(maxsize=32)
+def crypto_protocol_fundamentals(symbol: str) -> dict:
+    """Protocol revenue and TVL for a DeFi token — crypto's closest thing to fundamentals.
+
+    A DeFi token like AAVE or LDO is a claim on a protocol that actually earns fees and
+    locks value, so revenue and TVL are analysable much like a company's. A monetary
+    coin like BTC or DOGE has neither, and this says so plainly rather than inventing a
+    fundamental where none exists. For layer-1s the chain's own TVL is used instead.
+    """
+    src = "DefiLlama"
+    sym = symbol.upper()
+    try:
+        protocols = _get("https://api.llama.fi/protocols")
+        if not isinstance(protocols, list):
+            return {"text": f"{sym}: protocol data unavailable.", "source": src}
+
+        # Several protocols can share a ticker (v2/v3); take the largest by TVL.
+        matches = [p for p in protocols if (p.get("symbol") or "").upper() == sym]
+        matches.sort(key=lambda p: p.get("tvl") or 0, reverse=True)
+        protocol = matches[0] if matches else None
+        tvl = (protocol or {}).get("tvl") or 0
+
+        if not protocol or tvl <= 0:
+            # Not a fee-earning protocol. Fall back to chain TVL if it's a layer-1.
+            chains = _get("https://api.llama.fi/v2/chains")
+            chain = next(
+                (c for c in chains if (c.get("tokenSymbol") or "").upper() == sym), None
+            ) if isinstance(chains, list) else None
+            if chain and chain.get("tvl"):
+                return {
+                    "text": f"{sym} is a layer-1 token, not a fee-earning protocol: no "
+                            f"protocol revenue to analyse. DeFi TVL on {chain['name']} is "
+                            f"${chain['tvl'] / 1e9:.2f}B (ecosystem activity, not revenue "
+                            f"accruing to the token).",
+                    "source": src,
+                    "data": {"chain_tvl": chain["tvl"], "is_protocol": False},
+                }
+            return {
+                "text": f"{sym} has no protocol revenue or TVL — it is a monetary/"
+                        f"speculative asset rather than a claim on a cash-generating "
+                        f"protocol, so revenue-based valuation does not apply.",
+                "source": src,
+                "data": {"is_protocol": False},
+            }
+
+        # It is a real protocol: pull its revenue from the fees overview.
+        fees = _get(
+            "https://api.llama.fi/overview/fees",
+            {"excludeTotalDataChart": "true", "dataType": "dailyRevenue"},
+        )
+        entry = None
+        for e in (fees.get("protocols") or []) if isinstance(fees, dict) else []:
+            if str(e.get("defillamaId")) == str(protocol.get("id")) or \
+               (e.get("slug") and e["slug"] == protocol.get("slug")):
+                entry = e
+                break
+
+        bits = [f"{sym} is the token of {protocol.get('name')} "
+                f"({protocol.get('category', 'DeFi')}). TVL ${tvl / 1e9:.2f}B"]
+        data = {"is_protocol": True, "protocol": protocol.get("name"), "tvl": tvl,
+                "tvl_change_7d": protocol.get("change_7d")}
+        if protocol.get("change_7d") is not None:
+            bits.append(f"TVL 7d {protocol['change_7d']:+.1f}%")
+        if entry:
+            rev30, prev30 = _num(entry.get("total30d")), _num(entry.get("total60dto30d"))
+            if rev30:
+                bits.append(f"revenue last 30d ${rev30 / 1e6:.2f}M")
+                data["revenue_30d"] = rev30
+                if prev30 and prev30 > 0:
+                    growth = (rev30 / prev30 - 1) * 100
+                    bits.append(f"month-on-month {growth:+.1f}%")
+                    data["revenue_growth_30d"] = growth
+                # Annualised revenue against TVL — how hard the locked capital works.
+                bits.append(f"annualised revenue/TVL {rev30 * 12 / tvl * 100:.2f}%")
+        else:
+            bits.append("no fee revenue reported")
+        return {"text": ", ".join(bits) + ".", "source": src, "data": data}
+    except Exception as exc:  # noqa: BLE001
+        return {"text": f"Protocol data unavailable for {sym} ({exc}).", "source": src}
 
 
 @lru_cache(maxsize=64)
