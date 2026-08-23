@@ -38,6 +38,11 @@ def cached_trending_coins(limit: int = 7):
 
 
 @st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)
+def cached_top_protocols(by: str = "revenue_24h", limit: int = 5):
+    return md.top_protocols(by, limit)
+
+
+@st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)
 def cached_trending_stocks(limit: int = 7):
     return md.trending_stocks(limit)
 
@@ -76,14 +81,31 @@ def pct(value) -> str:
 # ---------- shared panels ----------
 
 def render_news(kind: str, limit: int = 5) -> None:
-    """Top headlines panel."""
-    for item in cached_headlines(kind, limit):
-        date = item["date"] or "undated"
-        if item["link"]:
-            st.markdown(f"**[{item['title']}]({item['link']})**")
+    """Top headlines as cards: thumbnail, headline, summary, source and date.
+
+    Feeds are inconsistent — some carry an image but no summary, some the reverse — so
+    each card lays out around whatever that item actually has, and never invents text.
+    """
+    for i, item in enumerate(cached_headlines(kind, limit)):
+        if item.get("image"):
+            img_col, text_col = st.columns([1, 4])
+            try:
+                img_col.image(item["image"], use_container_width=True)
+            except Exception:  # noqa: BLE001 - a dead image URL must not break the page
+                img_col.caption("🖼️")
         else:
-            st.markdown(f"**{item['title']}**")
-        st.caption(f"{date} · {item['source']}")
+            text_col = st.container()
+
+        with text_col:
+            if item["link"]:
+                st.markdown(f"**[{item['title']}]({item['link']})**")
+            else:
+                st.markdown(f"**{item['title']}**")
+            if item.get("summary"):
+                st.write(item["summary"])
+            st.caption(f"{item['date'] or 'undated'} · {item['source']}")
+        if i < limit - 1:
+            st.divider()
 
 
 def render_watchlist_editor(kind: str, label: str, current: list[str]) -> None:

@@ -9,6 +9,7 @@ Nothing here caches on its own; the Streamlit pages wrap these in `st.cache_data
 TTL, so the caching policy lives with the UI rather than being baked in.
 """
 
+import re
 from collections import defaultdict
 
 import httpx
@@ -33,8 +34,49 @@ HEADERS = {"User-Agent": "markets-research-agent"}
 
 # ---------------------------------------------------------------- news
 
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def _clean_summary(entry, max_chars: int = 260) -> str:
+    """Plain-text summary from a feed entry, HTML stripped and trimmed.
+
+    Feeds disagree about this: some populate `summary`, some `description`, some
+    neither. Returns "" rather than inventing text when a feed provides none.
+    """
+    raw = getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
+    text = _WS_RE.sub(" ", _TAG_RE.sub(" ", raw)).strip()
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit(" ", 1)[0] + "…"
+    return text
+
+
+def _entry_image(entry) -> str:
+    """Best available image URL for a feed entry, or "" if it has none.
+
+    Feeds expose images in several different places, so try each in turn:
+    media:content, media:thumbnail, an image enclosure, then an <img> in the HTML.
+    """
+    for key in ("media_content", "media_thumbnail"):
+        media = getattr(entry, key, None)
+        if media:
+            url = (media[0] or {}).get("url")
+            if url:
+                return url
+    for link in getattr(entry, "links", []) or []:
+        if (link.get("type") or "").startswith("image") and link.get("href"):
+            return link["href"]
+    html = getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
+    match = re.search(r'<img[^>]+src=["\']([^"\']+)', html)
+    return match.group(1) if match else ""
+
+
 def latest_headlines(kind: str, limit: int = 5) -> list[dict]:
-    """Most recent headlines for 'crypto' or 'stock', newest first, across feeds."""
+    """Most recent headlines for 'crypto' or 'stock', newest first, across feeds.
+
+    Each item carries a summary and an image where the feed supplies them; both are
+    empty strings otherwise, so the UI can lay out around what's actually available.
+    """
     import feedparser
 
     feeds = CRYPTO_FEEDS if kind == "crypto" else STOCK_FEEDS
@@ -49,12 +91,33 @@ def latest_headlines(kind: str, limit: int = 5) -> list[dict]:
                         "source": name,
                         "date": _entry_date(e),
                         "link": getattr(e, "link", "") or "",
+                        "summary": _clean_summary(e),
+                        "image": _entry_image(e),
                     })
         except Exception:  # noqa: BLE001 - one bad feed shouldn't empty the panel
             continue
+
     # Undated entries sort last; otherwise newest first.
     items.sort(key=lambda i: i["date"] or "", reverse=True)
-    return items[:limit]
+
+    # Cap items per outlet so the panel spans several sources. The most prolific feed
+    # would otherwise fill every slot — a worse read, and it hides the outlets that
+    # actually supply summaries.
+    per_source = max(1, limit // 2)
+    picked, counts = [], defaultdict(int)
+    for item in items:
+        if counts[item["source"]] < per_source:
+            picked.append(item)
+            counts[item["source"]] += 1
+        if len(picked) == limit:
+            break
+    # If a cap left us short (few sources live), top up with the freshest remainder.
+    if len(picked) < limit:
+        chosen = {(i["source"], i["title"]) for i in picked}
+        picked += [i for i in items if (i["source"], i["title"]) not in chosen][
+            : limit - len(picked)
+        ]
+    return picked[:limit]
 
 
 # ---------------------------------------------------------------- crypto
@@ -123,6 +186,85 @@ def coin_tvl(symbol: str) -> dict | None:
         if (c.get("tokenSymbol") or "").upper() == sym:
             return {"name": c.get("name"), "tvl": c.get("tvl")}
     return None
+
+
+def _defillama_protocols() -> list[dict]:
+    """Every DefiLlama protocol, joined with its 24h/30d revenue where it earns any.
+
+    Revenue and TVL come from two different endpoints whose names don't always agree
+    ("Circle USDC" vs "Circle"), so join on DefiLlama's own ids first and fall back to
+    slug, then name. Note that plenty of high-revenue protocols legitimately have no
+    TVL — a stablecoin issuer or a trading bot earns fees without locking value.
+    """
+    fees = httpx.get(
+        "https://api.llama.fi/overview/fees?excludeTotalDataChart=true&dataType=dailyRevenue",
+        timeout=45, headers=HEADERS,
+    ).json()
+    protocols = httpx.get("https://api.llama.fi/protocols", timeout=60, headers=HEADERS).json()
+    if not isinstance(protocols, list):
+        return []
+
+    by_id, by_slug, by_name = {}, {}, {}
+    for p in protocols:
+        tvl = p.get("tvl")
+        if p.get("id"):
+            by_id[str(p["id"])] = tvl
+        if p.get("slug"):
+            by_slug[str(p["slug"]).lower()] = tvl
+        if p.get("name"):
+            by_name[str(p["name"]).lower()] = tvl
+
+    def tvl_for(entry: dict):
+        return (
+            by_id.get(str(entry.get("defillamaId")))
+            or by_slug.get(str(entry.get("slug", "")).lower())
+            or by_name.get(str(entry.get("name", "")).lower())
+        )
+
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for e in (fees.get("protocols") or []) if isinstance(fees, dict) else []:
+        name = e.get("displayName") or e.get("name")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        rows.append({
+            "name": name,
+            "category": e.get("category") or "—",
+            "revenue_24h": _num(e.get("total24h")),
+            "revenue_30d": _num(e.get("total30d")),
+            "tvl": tvl_for(e),
+            "logo": e.get("logo") or "",
+        })
+
+    # Protocols with TVL but no fee data still belong in the TVL ranking.
+    for p in protocols:
+        name = p.get("name")
+        if name and name not in seen and p.get("tvl"):
+            rows.append({
+                "name": name,
+                "category": p.get("category") or "—",
+                "revenue_24h": None,
+                "revenue_30d": None,
+                "tvl": p.get("tvl"),
+                "logo": p.get("logo") or "",
+            })
+    return rows
+
+
+# Centralised exchanges report custodial reserves as "TVL", which dwarfs and crowds out
+# actual protocol TVL. They aren't DeFi projects, so they're excluded from the rankings.
+_NON_PROTOCOL_CATEGORIES = {"CEX", "Chain"}
+
+
+def top_protocols(by: str = "revenue_24h", limit: int = 5) -> list[dict]:
+    """Top DeFi projects ranked by 24h revenue or by TVL (exchanges excluded)."""
+    rows = [
+        r for r in _defillama_protocols()
+        if r.get(by) is not None and r.get("category") not in _NON_PROTOCOL_CATEGORIES
+    ]
+    rows.sort(key=lambda r: r[by], reverse=True)
+    return rows[:limit]
 
 
 def coin_overview(symbol: str) -> dict:

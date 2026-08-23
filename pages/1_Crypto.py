@@ -7,6 +7,7 @@ from agent import watchlist
 from ui_common import (
     cached_coin_overview,
     cached_open_interest,
+    cached_top_protocols,
     cached_trending_coins,
     money,
     pct,
@@ -28,9 +29,9 @@ with left:
 
 with right:
     st.subheader("Biggest open interest")
-    st.caption("Total leverage outstanding per coin, summed across derivatives venues.")
+    st.caption("Top 10 coins by leverage outstanding, summed across derivatives venues.")
     try:
-        rows = cached_open_interest(5)
+        rows = cached_open_interest(10)
         if rows:
             df = pd.DataFrame([
                 {
@@ -46,11 +47,71 @@ with right:
                 {"open interest ($B)": [r["open_interest"] / 1e9 for r in rows]},
                 index=[r["symbol"] for r in rows],
             )
-            st.bar_chart(chart, height=200)
+            st.bar_chart(chart, height=260)
         else:
             st.info("Open-interest data unavailable right now.")
     except Exception as exc:  # noqa: BLE001
         st.warning(f"Couldn't load open interest: {exc}")
+
+st.divider()
+
+# ---------------- top projects: revenue and TVL ----------------
+st.subheader("Top projects")
+st.caption(
+    "Revenue is fees actually earned by the protocol (DefiLlama). Many high-revenue "
+    "projects hold no TVL — a stablecoin issuer or trading bot earns without locking "
+    "value — so the two rankings deliberately differ."
+)
+
+rev_tab, tvl_tab = st.tabs(["By revenue (24h)", "By TVL"])
+
+
+def _protocol_table(rows: list[dict]) -> pd.DataFrame:
+    return pd.DataFrame([
+        {
+            "Project": r["name"],
+            "Category": r["category"],
+            "Revenue 24h": money(r["revenue_24h"]) if r["revenue_24h"] else "—",
+            "Revenue 30d": money(r["revenue_30d"]) if r["revenue_30d"] else "—",
+            "TVL": money(r["tvl"]) if r["tvl"] else "n/a",
+        }
+        for r in rows
+    ])
+
+
+with rev_tab:
+    try:
+        rows = cached_top_protocols("revenue_24h", 5)
+        if rows:
+            st.dataframe(_protocol_table(rows), hide_index=True, use_container_width=True)
+            st.bar_chart(
+                pd.DataFrame(
+                    {"revenue 24h ($M)": [r["revenue_24h"] / 1e6 for r in rows]},
+                    index=[r["name"] for r in rows],
+                ),
+                height=220,
+            )
+        else:
+            st.info("Revenue data unavailable right now.")
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"Couldn't load protocol revenue: {exc}")
+
+with tvl_tab:
+    try:
+        rows = cached_top_protocols("tvl", 5)
+        if rows:
+            st.dataframe(_protocol_table(rows), hide_index=True, use_container_width=True)
+            st.bar_chart(
+                pd.DataFrame(
+                    {"TVL ($B)": [r["tvl"] / 1e9 for r in rows]},
+                    index=[r["name"] for r in rows],
+                ),
+                height=220,
+            )
+        else:
+            st.info("TVL data unavailable right now.")
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"Couldn't load protocol TVL: {exc}")
 
 st.divider()
 
