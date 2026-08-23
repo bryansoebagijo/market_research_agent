@@ -62,6 +62,13 @@ def cached_growing_protocols(limit: int = 5):
     return md.top_growing_protocols(limit)
 
 
+# Quarterly results change a few times a year, and each symbol costs two Alpha Vantage
+# requests against a ~25/day free tier, so this is cached for hours and loaded on demand.
+@st.cache_data(ttl=21600, show_spinner=False)
+def cached_stock_growth(symbols: tuple[str, ...]):
+    return md.stock_growth_ranking(list(symbols))
+
+
 @st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)
 def cached_trending_stocks(limit: int = 7):
     return md.trending_stocks(limit)

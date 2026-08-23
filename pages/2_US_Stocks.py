@@ -5,6 +5,7 @@ import streamlit as st
 
 from agent import watchlist
 from ui_common import (
+    cached_stock_growth,
     cached_stock_overview,
     cached_trending_stocks,
     money,
@@ -59,6 +60,65 @@ render_watchlist_editor("stocks", "ticker", stocks)
 if not stocks:
     st.info("Add a ticker above (e.g. AAPL, MSFT, NVDA) to track it here.")
     st.stop()
+
+# ---------------- growth ranking across the watchlist ----------------
+with st.expander("📈 Growth ranking — revenue & earnings, year over year", expanded=False):
+    st.caption(
+        "Your watchlist ranked by year-over-year revenue growth, with EPS growth and "
+        "the change in operating margin. Year-over-year rather than quarter-on-quarter "
+        "because most businesses are seasonal.\n\n"
+        "Unlike the crypto page this covers your watchlist rather than the whole market: "
+        "Alpha Vantage is a per-symbol API on a ~25 requests/day free tier, so a "
+        f"market-wide scan isn't possible. Costs 2 requests per ticker "
+        f"({len(stocks) * 2} for your {len(stocks)}), then caches for hours."
+    )
+    if st.button("Load growth data", key="load_stock_growth"):
+        st.session_state["stock_growth_loaded"] = True
+
+    if st.session_state.get("stock_growth_loaded"):
+        with st.spinner("Fetching quarterly results…"):
+            try:
+                grows = cached_stock_growth(tuple(stocks))
+            except Exception as exc:  # noqa: BLE001
+                grows = []
+                st.warning(f"Couldn't load growth data: {exc}")
+        if grows:
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Ticker": g["symbol"],
+                        "Quarter": g.get("quarter", "—"),
+                        "Revenue": money(g.get("revenue_latest")),
+                        "Revenue YoY": f"{g['revenue_yoy']:+.1f}%" if g.get("revenue_yoy") is not None else "—",
+                        "EPS YoY": f"{g['eps_yoy']:+.1f}%" if g.get("eps_yoy") is not None else "—",
+                        "Op margin": f"{g['operating_margin']:.1f}%" if g.get("operating_margin") is not None else "—",
+                        "Margin change": f"{g['margin_change_pp']:+.1f}pp" if g.get("margin_change_pp") is not None else "—",
+                    }
+                    for g in grows
+                ]),
+                hide_index=True, use_container_width=True,
+            )
+            chart_rows = [g for g in grows if g.get("revenue_yoy") is not None]
+            if chart_rows:
+                st.bar_chart(
+                    pd.DataFrame(
+                        {
+                            "revenue YoY %": [g["revenue_yoy"] for g in chart_rows],
+                            "EPS YoY %": [g.get("eps_yoy") or 0 for g in chart_rows],
+                        },
+                        index=[g["symbol"] for g in chart_rows],
+                    ),
+                    height=240,
+                )
+            st.caption(
+                "Margin change is in percentage points. Expanding margins alongside "
+                "revenue growth is the healthier combination; revenue growing while "
+                "margins compress can mean growth is being bought."
+            )
+        elif st.session_state.get("stock_growth_loaded"):
+            st.info("No quarterly data available for these tickers (or the API is rate limited).")
+    else:
+        st.info("Not loaded — uses Alpha Vantage quota, so it's on demand.")
 
 selected = st.radio(
     "Select a stock", stocks, horizontal=True, label_visibility="collapsed",

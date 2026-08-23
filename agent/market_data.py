@@ -22,6 +22,7 @@ from agent.tools import (
     compute_ema,
     compute_rsi,
     crypto_technicals,
+    stock_earnings,
     stock_fundamentals,
     stock_snapshot,
     stock_technicals,
@@ -393,6 +394,62 @@ def trending_stocks(limit: int = 7) -> list[str]:
         if s and not any(s.endswith(sfx) or s.startswith("^") for sfx in _NON_EQUITY_SUFFIXES)
     ]
     return equities[:limit]
+
+
+def stock_growth(symbol: str) -> dict | None:
+    """Year-over-year revenue and earnings growth for one stock, plus margin direction.
+
+    Derived entirely from the data `stock_earnings` already fetches, so ranking a
+    watchlist costs no more API calls than looking those stocks up individually.
+    Year-over-year (this quarter vs the same quarter last year) rather than
+    quarter-on-quarter, because most businesses are seasonal.
+    """
+    data = (stock_earnings(symbol) or {}).get("data") or {}
+    quarters = data.get("revenue_quarters") or []   # oldest first
+    years = data.get("eps_years") or []             # oldest first
+
+    out: dict = {"symbol": symbol.upper()}
+
+    if len(quarters) >= 5:
+        latest, year_ago = quarters[-1], quarters[-5]
+        rev_now, rev_then = latest.get("revenue"), year_ago.get("revenue")
+        if rev_now and rev_then:
+            out["revenue_latest"] = rev_now
+            out["revenue_yoy"] = (rev_now / rev_then - 1) * 100
+            out["quarter"] = latest.get("quarter")
+        # Margin direction in percentage points — expanding or compressing.
+        m_now, m_then = latest.get("operating_margin"), year_ago.get("operating_margin")
+        if m_now is not None and m_then is not None:
+            out["operating_margin"] = m_now
+            out["margin_change_pp"] = m_now - m_then
+
+    if len(years) >= 2:
+        eps_now, eps_prev = years[-1].get("eps"), years[-2].get("eps")
+        if eps_now is not None and eps_prev:
+            out["eps_latest"] = eps_now
+            out["eps_yoy"] = (eps_now / eps_prev - 1) * 100 if eps_prev > 0 else None
+
+    return out if "revenue_yoy" in out or "eps_yoy" in out else None
+
+
+def stock_growth_ranking(symbols: list[str]) -> list[dict]:
+    """Rank a set of tickers by year-over-year revenue growth.
+
+    Scoped to a supplied list rather than the whole market on purpose: Alpha Vantage is
+    a per-symbol API on a ~25 requests/day free tier, so a market-wide scan isn't
+    possible the way it is for DeFi protocols.
+    """
+    rows = []
+    for sym in symbols:
+        try:
+            g = stock_growth(sym)
+        except Exception:  # noqa: BLE001 - one bad symbol shouldn't drop the table
+            g = None
+        if g:
+            rows.append(g)
+    rows.sort(key=lambda r: r.get("revenue_yoy") if r.get("revenue_yoy") is not None else -1e9,
+              reverse=True)
+    return rows
 
 
 def stock_overview(symbol: str, with_fundamentals: bool = True) -> dict:
