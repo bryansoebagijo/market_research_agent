@@ -22,8 +22,13 @@ st.title("🏦 US Stocks")
 left, right = st.columns([3, 2])
 
 with left:
-    st.subheader("Top news")
-    render_news("stock", 5)
+    head, toggle = st.columns([2, 1])
+    head.subheader("Top news")
+    ai_news = toggle.toggle(
+        "AI summaries", value=True, key="stock_ai_news",
+        help="Adds a one-line summary and a market-impact tag. One LLM call per refresh.",
+    )
+    render_news("stock", 5, ai=ai_news)
 
 with right:
     st.subheader("Trending tickers")

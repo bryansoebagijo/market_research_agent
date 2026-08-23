@@ -24,8 +24,15 @@ st.title("🪙 Crypto")
 left, right = st.columns([3, 2])
 
 with left:
-    st.subheader("Top news")
-    render_news("crypto", 5)
+    head, toggle = st.columns([2, 1])
+    head.subheader("Top news")
+    # One batched LLM call per refresh window, so this is cheap — but it's still quota,
+    # so it stays opt-in.
+    ai_news = toggle.toggle(
+        "AI summaries", value=True, key="crypto_ai_news",
+        help="Adds a one-line summary and a market-impact tag. One LLM call per refresh.",
+    )
+    render_news("crypto", 5, ai=ai_news)
 
 with right:
     st.subheader("Biggest open interest")

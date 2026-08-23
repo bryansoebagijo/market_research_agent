@@ -27,6 +27,18 @@ def cached_headlines(kind: str, limit: int = 5):
     return md.latest_headlines(kind, limit)
 
 
+@st.cache_data(ttl=TTL_NEWS, show_spinner=False)
+def cached_headlines_ai(kind: str, limit: int = 5):
+    """Headlines plus an LLM summary and market-impact tag.
+
+    Cached on the same TTL as the raw feed, so the whole panel costs one LLM call per
+    refresh window rather than one per headline per page view.
+    """
+    from agent.news_ai import enrich_headlines
+
+    return enrich_headlines(list(md.latest_headlines(kind, limit)))
+
+
 @st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)
 def cached_open_interest(limit: int = 5):
     return md.top_open_interest(limit)
@@ -80,13 +92,22 @@ def pct(value) -> str:
 
 # ---------- shared panels ----------
 
-def render_news(kind: str, limit: int = 5) -> None:
+IMPACT_ICONS = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
+
+
+def render_news(kind: str, limit: int = 5, ai: bool = False) -> None:
     """Top headlines as cards: thumbnail, headline, summary, source and date.
 
     Feeds are inconsistent — some carry an image but no summary, some the reverse — so
     each card lays out around whatever that item actually has, and never invents text.
+    With ai=True, one batched LLM call adds a uniform summary and a market-impact tag.
     """
-    for i, item in enumerate(cached_headlines(kind, limit)):
+    items = cached_headlines_ai(kind, limit) if ai else cached_headlines(kind, limit)
+
+    if ai and items and items[0].get("ai_error"):
+        st.caption(f"AI summaries unavailable ({items[0]['ai_error']}) — showing feed text.")
+
+    for i, item in enumerate(items):
         if item.get("image"):
             img_col, text_col = st.columns([1, 4])
             try:
@@ -97,14 +118,25 @@ def render_news(kind: str, limit: int = 5) -> None:
             text_col = st.container()
 
         with text_col:
+            impact = (item.get("impact") or "").lower()
+            badge = f"{IMPACT_ICONS.get(impact, '')} " if impact else ""
             if item["link"]:
-                st.markdown(f"**[{item['title']}]({item['link']})**")
+                st.markdown(f"{badge}**[{item['title']}]({item['link']})**")
             else:
-                st.markdown(f"**{item['title']}**")
-            if item.get("summary"):
-                st.write(item["summary"])
-            st.caption(f"{item['date'] or 'undated'} · {item['source']}")
-        if i < limit - 1:
+                st.markdown(f"{badge}**{item['title']}**")
+
+            # Prefer the LLM's uniform summary; fall back to the feed's own lede.
+            body = item.get("ai_summary") or item.get("summary")
+            if body:
+                st.write(body)
+
+            meta = f"{item['date'] or 'undated'} · {item['source']}"
+            if item.get("ai_summary"):
+                meta += " · AI summary"
+                if impact:
+                    meta += f" · impact: {item['impact']}"
+            st.caption(meta)
+        if i < len(items) - 1:
             st.divider()
 
 
