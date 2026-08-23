@@ -230,9 +230,12 @@ def _defillama_protocols() -> list[dict]:
         seen.add(name)
         rows.append({
             "name": name,
+            "slug": e.get("slug") or "",
             "category": e.get("category") or "—",
             "revenue_24h": _num(e.get("total24h")),
             "revenue_30d": _num(e.get("total30d")),
+            # The 30 days *before* the last 30 — the baseline for month-on-month growth.
+            "revenue_prev_30d": _num(e.get("total60dto30d")),
             "tvl": tvl_for(e),
             "logo": e.get("logo") or "",
         })
@@ -243,13 +246,80 @@ def _defillama_protocols() -> list[dict]:
         if name and name not in seen and p.get("tvl"):
             rows.append({
                 "name": name,
+                "slug": p.get("slug") or "",
                 "category": p.get("category") or "—",
                 "revenue_24h": None,
                 "revenue_30d": None,
+                "revenue_prev_30d": None,
                 "tvl": p.get("tvl"),
                 "logo": p.get("logo") or "",
             })
     return rows
+
+
+def _tvl_change_30d(slug: str) -> float | None:
+    """Percentage change in a protocol's TVL over the last 30 days.
+
+    DefiLlama's bulk /protocols feed only exposes 1h/1d/7d changes, so a monthly figure
+    needs the protocol's own history endpoint — one request each, which is why callers
+    only ask for a shortlist.
+    """
+    if not slug:
+        return None
+    try:
+        d = httpx.get(f"https://api.llama.fi/protocol/{slug}", timeout=40, headers=HEADERS).json()
+        series = d.get("tvl") or []
+        if len(series) < 32:
+            return None
+        now = series[-1].get("totalLiquidityUSD")
+        past = series[-31].get("totalLiquidityUSD")
+        if not now or not past:
+            return None
+        return (now / past - 1) * 100
+    except Exception:  # noqa: BLE001 - a missing history shouldn't drop the whole panel
+        return None
+
+
+# Floors that keep the growth ranking meaningful: a protocol earning $200 last month and
+# $2,000 this month is up 900%, which is noise rather than a trend worth showing.
+MIN_REVENUE_30D = 50_000
+MIN_TVL = 10_000_000
+
+
+def top_growing_protocols(limit: int = 5, candidates: int = 10) -> list[dict]:
+    """Projects whose revenue AND TVL are both growing month over month.
+
+    Revenue growth comes from the bulk fees feed (last 30 days vs the 30 before it).
+    TVL growth needs a per-protocol request, so only the strongest revenue growers of
+    meaningful size are checked, and the result keeps just those growing on both.
+    """
+    rows = []
+    for r in _defillama_protocols():
+        if r.get("category") in _NON_PROTOCOL_CATEGORIES:
+            continue
+        cur, prev, tvl = r.get("revenue_30d"), r.get("revenue_prev_30d"), r.get("tvl")
+        if not cur or not prev or prev <= 0 or not tvl:
+            continue
+        # BOTH periods must be meaningful. Requiring only the current month lets a
+        # protocol that earned a few hundred dollars last month show +40,000% growth,
+        # which crowds out real trends.
+        if cur < MIN_REVENUE_30D or prev < MIN_REVENUE_30D or tvl < MIN_TVL:
+            continue
+        growth = (cur / prev - 1) * 100
+        if growth <= 0:
+            continue
+        rows.append({**r, "revenue_growth_30d": growth})
+
+    rows.sort(key=lambda r: r["revenue_growth_30d"], reverse=True)
+
+    out = []
+    for r in rows[:candidates]:
+        tvl_growth = _tvl_change_30d(r["slug"])
+        if tvl_growth is not None and tvl_growth > 0:
+            out.append({**r, "tvl_growth_30d": tvl_growth})
+        if len(out) == limit:
+            break
+    return out
 
 
 # Centralised exchanges report custodial reserves as "TVL", which dwarfs and crowds out

@@ -54,6 +54,14 @@ def cached_top_protocols(by: str = "revenue_24h", limit: int = 5):
     return md.top_protocols(by, limit)
 
 
+# Monthly TVL growth needs a request per protocol, so this takes ~15s on a cold cache.
+# It's a monthly metric that barely moves, so it's cached far longer and loaded on
+# demand rather than blocking every page view.
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_growing_protocols(limit: int = 5):
+    return md.top_growing_protocols(limit)
+
+
 @st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)
 def cached_trending_stocks(limit: int = 7):
     return md.trending_stocks(limit)

@@ -6,6 +6,7 @@ import streamlit as st
 from agent import watchlist
 from ui_common import (
     cached_coin_overview,
+    cached_growing_protocols,
     cached_open_interest,
     cached_top_protocols,
     cached_trending_coins,
@@ -70,7 +71,9 @@ st.caption(
     "value — so the two rankings deliberately differ."
 )
 
-rev_tab, tvl_tab = st.tabs(["By revenue (24h)", "By TVL"])
+rev_tab, tvl_tab, growth_tab = st.tabs(
+    ["By revenue (24h)", "By TVL", "Growing month-over-month"]
+)
 
 
 def _protocol_table(rows: list[dict]) -> pd.DataFrame:
@@ -119,6 +122,57 @@ with tvl_tab:
             st.info("TVL data unavailable right now.")
     except Exception as exc:  # noqa: BLE001
         st.warning(f"Couldn't load protocol TVL: {exc}")
+
+with growth_tab:
+    st.caption(
+        "Projects where **both** revenue and TVL grew over the last 30 days, ranked by "
+        "revenue growth. Revenue compares the last 30 days with the 30 before it. "
+        "Only projects above $50k monthly revenue **in both periods** and $10M TVL "
+        "qualify — otherwise a protocol going from $200 to $2,000 shows +900% and "
+        "crowds out real trends."
+    )
+    if st.button("Load growth data", key="load_growth"):
+        st.session_state["growth_loaded"] = True
+
+    if st.session_state.get("growth_loaded"):
+        with st.spinner("Fetching 30-day TVL history per project… (~15s, then cached)"):
+            try:
+                rows = cached_growing_protocols(5)
+            except Exception as exc:  # noqa: BLE001
+                rows = []
+                st.warning(f"Couldn't load growth data: {exc}")
+        if rows:
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Project": r["name"],
+                        "Category": r["category"],
+                        "Revenue 30d": money(r["revenue_30d"]),
+                        "Revenue growth": f"{r['revenue_growth_30d']:+.1f}%",
+                        "TVL": money(r["tvl"]),
+                        "TVL growth": f"{r['tvl_growth_30d']:+.1f}%",
+                    }
+                    for r in rows
+                ]),
+                hide_index=True, use_container_width=True,
+            )
+            st.bar_chart(
+                pd.DataFrame(
+                    {
+                        "revenue growth %": [r["revenue_growth_30d"] for r in rows],
+                        "TVL growth %": [r["tvl_growth_30d"] for r in rows],
+                    },
+                    index=[r["name"] for r in rows],
+                ),
+                height=240,
+            )
+        elif st.session_state.get("growth_loaded"):
+            st.info("No projects currently meet both growth conditions at these sizes.")
+    else:
+        st.info(
+            "Not loaded — this one needs a request per project for monthly TVL history, "
+            "so it's on demand to keep the page fast."
+        )
 
 st.divider()
 
