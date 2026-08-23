@@ -234,8 +234,11 @@ def render_results(state: dict) -> None:
 with st.sidebar:
     st.title("📈 Markets Research Agent")
     st.caption(
-        "Plans research, gathers live prices, technicals, fundamentals and news, "
-        "critiques its own coverage, then reports with citations."
+        "Ask a free-form question and the agent plans research, gathers live prices, "
+        "technicals, fundamentals and news, critiques its own coverage, then reports "
+        "with citations.\n\n"
+        "**🪙 Crypto** and **🏦 US Stocks** above are live dashboards — news, leverage, "
+        "trending and your watchlists."
     )
     review = st.toggle(
         "Review the plan before researching",

@@ -21,3 +21,6 @@ reports/
 
 # Streamlit UI log
 ui.log
+
+# Watchlists (local user state)
+data/watchlists.json
