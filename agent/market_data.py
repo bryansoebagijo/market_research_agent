@@ -479,6 +479,64 @@ def protocol_history(slug: str, months: int = 12) -> dict:
     return out
 
 
+def coin_protocol_slug(symbol: str) -> tuple[str, str] | None:
+    """Resolve a coin ticker to its DefiLlama protocol as (slug, display name).
+
+    Several protocols can share a ticker (v2 and v3 of the same product), so the
+    largest by TVL wins. Returns None for coins that aren't fee-earning protocols.
+    """
+    rows = _get("https://api.llama.fi/protocols")
+    if not isinstance(rows, list):
+        return None
+    sym = symbol.upper()
+    matches = [p for p in rows if (p.get("symbol") or "").upper() == sym and (p.get("tvl") or 0) > 0]
+    if not matches:
+        return None
+    matches.sort(key=lambda p: p.get("tvl") or 0, reverse=True)
+    best = matches[0]
+    return (best.get("slug") or "", best.get("name") or sym)
+
+
+def watchlist_revenue_history(symbols: list[str], months: int = 12) -> dict:
+    """Twelve months of protocol revenue for each watchlist coin that earns any.
+
+    Splits the watchlist in two: coins backed by a fee-earning protocol get a monthly
+    revenue series, and the rest are reported as having none. That distinction is the
+    point — a coin with no protocol revenue isn't failing to grow, it simply has no
+    revenue to measure.
+    """
+    series: dict[str, list[dict]] = {}
+    meta: dict[str, dict] = {}
+    without: list[str] = []
+
+    for sym in symbols:
+        try:
+            resolved = coin_protocol_slug(sym)
+        except Exception:  # noqa: BLE001
+            resolved = None
+        if not resolved or not resolved[0]:
+            without.append(sym.upper())
+            continue
+
+        slug, name = resolved
+        hist = protocol_history(slug, months)
+        revenue = hist.get("revenue_monthly") or []
+        if not revenue:
+            without.append(sym.upper())
+            continue
+
+        series[sym.upper()] = revenue
+        first, last = revenue[0]["revenue"], revenue[-1]["revenue"]
+        meta[sym.upper()] = {
+            "protocol": name,
+            "latest": last,
+            "growth_pct": ((last / first - 1) * 100) if first else None,
+            "from": revenue[0]["month"],
+            "to": revenue[-1]["month"],
+        }
+    return {"series": series, "meta": meta, "without_revenue": without}
+
+
 def coin_overview(symbol: str) -> dict:
     """Everything the crypto detail panel shows for one coin."""
     out: dict = {"symbol": symbol.upper()}

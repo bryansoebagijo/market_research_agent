@@ -17,6 +17,7 @@ from ui_common import (
     render_protocol_history,
     render_signal,
     render_watchlist_editor,
+    render_watchlist_revenue,
     run_agent_analysis,
 )
 
@@ -268,6 +269,19 @@ render_watchlist_editor("crypto", "coin", coins)
 if not coins:
     st.info("Add a coin above (e.g. BTC, ETH, SOL) to track it here.")
     st.stop()
+
+# --- protocol revenue across the whole watchlist ---
+with st.expander("📈 Protocol revenue — last 12 months across your watchlist"):
+    st.caption(
+        "Monthly revenue for each watchlist coin backed by a fee-earning protocol. "
+        "Costs a couple of requests per coin, so it loads on demand and caches."
+    )
+    if st.button("Load revenue history", key="load_wl_revenue"):
+        st.session_state["wl_revenue_loaded"] = True
+    if st.session_state.get("wl_revenue_loaded"):
+        render_watchlist_revenue(coins)
+    else:
+        st.info("Not loaded — fetches per-protocol history, so it's on demand.")
 
 selected = st.radio(
     "Select a coin", coins, horizontal=True, label_visibility="collapsed",

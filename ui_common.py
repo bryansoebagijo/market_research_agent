@@ -81,6 +81,66 @@ def cached_stock_financials(symbol: str):
     return md.stock_financials(symbol)
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_watchlist_revenue(symbols: tuple[str, ...], months: int = 12):
+    return md.watchlist_revenue_history(list(symbols), months)
+
+
+def render_watchlist_revenue(symbols: list[str]) -> None:
+    """Twelve months of protocol revenue for every watchlist coin that earns any."""
+    with st.spinner("Fetching protocol revenue history…"):
+        result = cached_watchlist_revenue(tuple(symbols), 12)
+
+    series, meta = result.get("series") or {}, result.get("meta") or {}
+    without = result.get("without_revenue") or []
+
+    if not series:
+        st.info(
+            "None of your watchlist coins are backed by a fee-earning protocol, so "
+            "there's no revenue to chart. That's expected for monetary coins like BTC "
+            "or DOGE — they have no protocol income by design."
+        )
+        return
+
+    # Absolute revenue, all coins on one chart.
+    frame = pd.DataFrame(
+        {sym: {row["month"]: row["revenue"] for row in rows} for sym, rows in series.items()}
+    ).sort_index()
+    st.caption("Monthly protocol revenue (last 12 months)")
+    st.line_chart(frame, height=280)
+
+    # Indexed to 100 at the start, so a small protocol's growth is visible next to a
+    # large one — absolute lines alone would flatten everything under the biggest.
+    if len(series) > 1:
+        indexed = frame.copy()
+        for col in indexed.columns:
+            base = indexed[col].dropna()
+            if not base.empty and base.iloc[0]:
+                indexed[col] = indexed[col] / base.iloc[0] * 100
+        st.caption("Same data indexed to 100 at the start — relative growth")
+        st.line_chart(indexed, height=260)
+
+    st.dataframe(
+        pd.DataFrame([
+            {
+                "Coin": sym,
+                "Protocol": m["protocol"],
+                "Latest month": money(m["latest"]),
+                "12-month change": f"{m['growth_pct']:+.1f}%" if m["growth_pct"] is not None else "—",
+                "Period": f"{m['from']} → {m['to']}",
+            }
+            for sym, m in meta.items()
+        ]),
+        hide_index=True, use_container_width=True,
+    )
+
+    if without:
+        st.caption(
+            f"No protocol revenue for: {', '.join(without)} — monetary or non-protocol "
+            "assets, so there is nothing to measure rather than nothing to show."
+        )
+
+
 def render_stock_financials(symbol: str) -> None:
     """Quarterly revenue, profit and margin charts from the income statement."""
     with st.spinner(f"Loading {symbol} quarterly financials…"):
