@@ -26,6 +26,12 @@ class HeadlineTake(BaseModel):
         "matters. Use ONLY the provided title and lede — never invent figures, names, "
         "or causes."
     )
+    assets: list[str] = Field(
+        default_factory=list,
+        description="Up to 3 ticker symbols this story most directly affects, e.g. "
+        "['AAVE'] or ['NVDA','TSM']. Only assets named or unmistakably implied by the "
+        "text. Empty for general market or macro news that names no specific asset.",
+    )
 
 
 class HeadlineTakes(BaseModel):
@@ -44,6 +50,12 @@ SYSTEM = (
     "- One sentence each, around 25 words, plain language, no hype.\n"
     "- Also judge the likely market impact: Bullish, Bearish, or Neutral. Use Neutral "
     "when the story is informational or the direction genuinely isn't clear.\n"
+    "- List up to 3 ticker symbols the story most directly affects, using standard "
+    "tickers (Bitcoin -> BTC, Nvidia -> NVDA, Aave -> AAVE). Include an asset only if "
+    "it is named in the text or unmistakably implied by it — for a story about a "
+    "specific protocol or company, that asset's own token or stock. Leave the list "
+    "EMPTY for macro or general-market stories that name no particular asset; do not "
+    "guess at indirect beneficiaries.\n"
     "- Return exactly one take per item, in the same order."
 )
 
@@ -80,4 +92,19 @@ def enrich_headlines(items: list[dict]) -> list[dict]:
         if i < len(takes):
             item["ai_summary"] = takes[i].summary.strip()
             item["impact"] = takes[i].impact.strip()
+            item["assets"] = _clean_assets(takes[i].assets)
     return items
+
+
+def _clean_assets(assets: list[str]) -> list[str]:
+    """Keep only plausible ticker symbols, uppercased and deduplicated.
+
+    A light shape check (short, alphanumeric) drops the occasional company name or
+    sentence fragment the model returns in place of a ticker.
+    """
+    out: list[str] = []
+    for raw in assets or []:
+        sym = str(raw).strip().upper().lstrip("$")
+        if 1 <= len(sym) <= 6 and sym.isalnum() and sym not in out:
+            out.append(sym)
+    return out[:3]

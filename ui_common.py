@@ -205,6 +205,19 @@ def render_news(kind: str, limit: int = 5, ai: bool = False) -> None:
             if body:
                 st.write(body)
 
+            # Assets the story touches, each clickable to add to the watchlist.
+            assets = item.get("assets") or []
+            if assets:
+                label_col, *asset_cols = st.columns([2] + [1] * len(assets))
+                label_col.caption("Affects:")
+                for col, sym in zip(asset_cols, assets):
+                    if col.button(f"+ {sym}", key=f"news_{kind}_{i}_{sym}",
+                                  help=f"Add {sym} to your {kind} watchlist"):
+                        from agent import watchlist
+
+                        watchlist.add("crypto" if kind == "crypto" else "stocks", sym)
+                        st.rerun()
+
             meta = f"{item['date'] or 'undated'} · {item['source']}"
             if item.get("ai_summary"):
                 meta += " · AI summary"
