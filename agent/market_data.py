@@ -10,6 +10,7 @@ TTL, so the caching policy lives with the UI rather than being baked in.
 """
 
 import re
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -234,6 +235,15 @@ def coin_tvl(symbol: str) -> dict | None:
     return None
 
 
+# The DefiLlama join is several megabytes and every ranking needs it, so the result is
+# memoised for the process. Without this a single page load repeated the whole fetch
+# once per tab.
+_PROTOCOL_CACHE: dict = {"at": 0.0, "rows": None}
+# Held for a while because the fetch is expensive and the data moves slowly; a
+# successful pull shouldn't be thrown away just because DefiLlama is having a bad hour.
+_PROTOCOL_CACHE_SECONDS = 900
+
+
 def _defillama_protocols() -> list[dict]:
     """Every DefiLlama protocol, joined with its 24h/30d revenue where it earns any.
 
@@ -242,13 +252,36 @@ def _defillama_protocols() -> list[dict]:
     slug, then name. Note that plenty of high-revenue protocols legitimately have no
     TVL — a stablecoin issuer or a trading bot earns fees without locking value.
     """
-    fees = httpx.get(
-        "https://api.llama.fi/overview/fees?excludeTotalDataChart=true&dataType=dailyRevenue",
-        timeout=45, headers=HEADERS,
-    ).json()
+    now = time.time()
+    if _PROTOCOL_CACHE["rows"] is not None and now - _PROTOCOL_CACHE["at"] < _PROTOCOL_CACHE_SECONDS:
+        return _PROTOCOL_CACHE["rows"]
+
+    # TVL first: /protocols is fast and reliable, and it alone powers the TVL ranking.
     protocols = httpx.get("https://api.llama.fi/protocols", timeout=60, headers=HEADERS).json()
     if not isinstance(protocols, list):
         return []
+
+    # Revenue is fetched separately and allowed to fail. The fees endpoint is often slow
+    # (observed at 60-80s) and a timeout there shouldn't take the TVL ranking down with
+    # it — the revenue columns just read "n/a" instead.
+    # excludeTotalDataChartBreakdown matters: without it the response carries a per-chain
+    # daily history for every protocol, 21MB instead of 3.6MB.
+    fees: dict = {}
+    try:
+        fees = httpx.get(
+            "https://api.llama.fi/overview/fees",
+            params={
+                "excludeTotalDataChart": "true",
+                "excludeTotalDataChartBreakdown": "true",
+                "dataType": "dailyRevenue",
+            },
+            # Short on purpose. A healthy DefiLlama answers in 1-2s; when it's degraded
+            # it takes 60-80s, and making the page wait that long to end up degrading
+            # anyway is worse than giving up quickly and showing TVL.
+            timeout=20, headers=HEADERS,
+        ).json()
+    except Exception:  # noqa: BLE001 - degrade to TVL-only rather than failing outright
+        fees = {}
 
     by_id, by_slug, by_name = {}, {}, {}
     for p in protocols:
@@ -300,6 +333,8 @@ def _defillama_protocols() -> list[dict]:
                 "tvl": p.get("tvl"),
                 "logo": p.get("logo") or "",
             })
+
+    _PROTOCOL_CACHE.update({"at": now, "rows": rows})
     return rows
 
 

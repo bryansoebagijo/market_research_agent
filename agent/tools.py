@@ -280,9 +280,15 @@ def crypto_protocol_fundamentals(symbol: str) -> dict:
             }
 
         # It is a real protocol: pull its revenue from the fees overview.
+        # Excluding the per-chain breakdown keeps this at ~3.6MB instead of ~21MB.
         fees = _get(
             "https://api.llama.fi/overview/fees",
-            {"excludeTotalDataChart": "true", "dataType": "dailyRevenue"},
+            {
+                "excludeTotalDataChart": "true",
+                "excludeTotalDataChartBreakdown": "true",
+                "dataType": "dailyRevenue",
+            },
+            timeout=60.0,
         )
         entry = None
         for e in (fees.get("protocols") or []) if isinstance(fees, dict) else []:

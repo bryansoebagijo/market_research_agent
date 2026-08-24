@@ -122,9 +122,16 @@ with rev_tab:
                 st.divider()
                 render_protocol_history(chosen["name"], chosen.get("slug", ""), "revenue")
         else:
-            st.info("Revenue data unavailable right now.")
+            st.info(
+                "No revenue data right now — DefiLlama's fees endpoint is intermittently "
+                "slow and this ranking degrades rather than blocking the page. The TVL "
+                "tab still works; try again in a few minutes."
+            )
     except Exception as exc:  # noqa: BLE001
-        st.warning(f"Couldn't load protocol revenue: {exc}")
+        st.warning(
+            f"Couldn't load protocol revenue ({type(exc).__name__}). DefiLlama's fees "
+            "endpoint is often slow; the TVL tab is unaffected."
+        )
 
 with tvl_tab:
     try:
