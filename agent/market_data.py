@@ -537,6 +537,23 @@ def trending_stocks(limit: int = 7) -> list[str]:
     return equities[:limit]
 
 
+def stock_financials(symbol: str) -> dict:
+    """Quarterly income-statement series for charting: revenue, profit, and margins.
+
+    Reads the same `stock_earnings` payload the analyst uses, so viewing the charts
+    costs no additional Alpha Vantage requests beyond that cached call.
+    """
+    payload = stock_earnings(symbol) or {}
+    data = payload.get("data") or {}
+    return {
+        "symbol": symbol.upper(),
+        "quarters": data.get("revenue_quarters") or [],   # oldest first
+        "eps_quarters": data.get("eps_quarters") or [],
+        "eps_years": data.get("eps_years") or [],
+        "text": payload.get("text", ""),
+    }
+
+
 def stock_growth(symbol: str) -> dict | None:
     """Year-over-year revenue and earnings growth for one stock, plus margin direction.
 

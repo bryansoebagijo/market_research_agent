@@ -12,6 +12,7 @@ from ui_common import (
     pct,
     render_news,
     render_signal,
+    render_stock_financials,
     render_watchlist_editor,
     run_agent_analysis,
 )
@@ -169,6 +170,19 @@ else:
 if show_fundamentals and data.get("fundamentals_text"):
     st.markdown("**Fundamentals**")
     st.write(data["fundamentals_text"])
+
+# --- quarterly financial statements ---
+with st.expander(f"📊 {selected} quarterly financials — revenue, profit, margins"):
+    st.caption(
+        "From Alpha Vantage's quarterly income statements. Costs 2 requests against the "
+        "~25/day free tier the first time, then caches for hours."
+    )
+    if st.button("Load financials", key=f"load_fin_{selected}"):
+        st.session_state[f"fin_{selected}"] = True
+    if st.session_state.get(f"fin_{selected}"):
+        render_stock_financials(selected)
+    else:
+        st.info("Not loaded — uses Alpha Vantage quota, so it's on demand.")
 
 # --- on-demand full analysis ---
 st.divider()

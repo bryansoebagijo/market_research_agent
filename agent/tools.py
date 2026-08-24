@@ -541,17 +541,24 @@ def stock_earnings(symbol: str) -> dict:
                 bits.append(f"operating margin {op / rev * 100:.1f}%")
             parts.append(", ".join(bits) + ".")
 
-            # Revenue and margins for the last 8 quarters, oldest first, for charting.
+            # Revenue, profit and margins for the last 12 quarters (three years), oldest
+            # first, so the charts show a trend rather than a snapshot.
             series = []
-            for r in reversed(reports[:8]):
-                rv, gp, oi = (_num(r.get("totalRevenue")), _num(r.get("grossProfit")),
-                              _num(r.get("operatingIncome")))
+            for r in reversed(reports[:12]):
+                rv, gp, oi, ni = (
+                    _num(r.get("totalRevenue")), _num(r.get("grossProfit")),
+                    _num(r.get("operatingIncome")), _num(r.get("netIncome")),
+                )
                 if rv:
                     series.append({
                         "quarter": r.get("fiscalDateEnding"),
                         "revenue": rv,
+                        "gross_profit": gp,
+                        "operating_income": oi,
+                        "net_income": ni,
                         "gross_margin": round(gp / rv * 100, 1) if gp else None,
                         "operating_margin": round(oi / rv * 100, 1) if oi else None,
+                        "net_margin": round(ni / rv * 100, 1) if ni else None,
                     })
             data["revenue_quarters"] = series
         else:

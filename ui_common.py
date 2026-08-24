@@ -75,6 +75,51 @@ def cached_protocol_history(slug: str, months: int = 12):
     return md.protocol_history(slug, months)
 
 
+# Quarterly statements change a few times a year, so this is cached for hours.
+@st.cache_data(ttl=21600, show_spinner=False)
+def cached_stock_financials(symbol: str):
+    return md.stock_financials(symbol)
+
+
+def render_stock_financials(symbol: str) -> None:
+    """Quarterly revenue, profit and margin charts from the income statement."""
+    with st.spinner(f"Loading {symbol} quarterly financials…"):
+        fin = cached_stock_financials(symbol)
+
+    quarters = fin.get("quarters") or []
+    if not quarters:
+        st.info(
+            f"No quarterly statements returned for {symbol} — either Alpha Vantage has "
+            "no coverage or the daily request limit was reached."
+        )
+        return
+
+    df = pd.DataFrame(quarters).set_index("quarter")
+
+    st.caption(f"{symbol} — quarterly revenue (last {len(quarters)} quarters)")
+    st.line_chart(df[["revenue"]], height=260)
+    first, last = quarters[0]["revenue"], quarters[-1]["revenue"]
+    if first:
+        st.caption(
+            f"{quarters[0]['quarter']} → {quarters[-1]['quarter']}: "
+            f"{money(first)} → {money(last)} ({(last / first - 1) * 100:+.1f}%)"
+        )
+
+    profit_cols = [c for c in ("gross_profit", "operating_income", "net_income") if c in df]
+    if profit_cols and df[profit_cols].notna().any().any():
+        st.caption(f"{symbol} — quarterly profit")
+        st.line_chart(df[profit_cols], height=260)
+
+    margin_cols = [c for c in ("gross_margin", "operating_margin", "net_margin") if c in df]
+    if margin_cols and df[margin_cols].notna().any().any():
+        st.caption(f"{symbol} — margins (%)")
+        st.line_chart(df[margin_cols], height=240)
+        st.caption(
+            "Margins matter more than the absolute figures: revenue rising while margins "
+            "compress means growth is being bought rather than earned."
+        )
+
+
 def render_protocol_history(name: str, slug: str, primary: str = "revenue") -> None:
     """Monthly revenue and TVL history for one protocol, primary metric first."""
     if not slug:
