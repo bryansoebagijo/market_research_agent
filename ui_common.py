@@ -304,22 +304,33 @@ def month_line_chart(
         return
 
     value_format = "$,.0f" if money_axis else ",.2f"
-    chart = (
-        alt.Chart(df)
-        .mark_line(point=True)
+    x_enc = alt.X("_date:T", title=None,
+                  axis=alt.Axis(format="%b-%Y", labelAngle=-45, tickCount=len(df)))
+    y_enc = alt.Y(f"{value_field}:Q", title=label,
+                  axis=alt.Axis(format="$~s" if money_axis else "~s"))
+
+    base = alt.Chart(df)
+    line = base.mark_line(point=True).encode(x=x_enc, y=y_enc)
+
+    # Hovering the line itself means hitting a few pixels exactly. This invisible rule
+    # spans the full height at each x, so the tooltip fires from anywhere vertically and
+    # snaps to the nearest month.
+    hover = alt.selection_point(nearest=True, on="pointerover",
+                                fields=["_date"], empty=False)
+    hover_layer = (
+        base.mark_rule(color="gray")
         .encode(
-            x=alt.X("_date:T", title=None,
-                    axis=alt.Axis(format="%b-%Y", labelAngle=-45, tickCount=len(df))),
-            y=alt.Y(f"{value_field}:Q", title=label,
-                    axis=alt.Axis(format="$~s" if money_axis else "~s")),
+            x=x_enc,
+            opacity=alt.condition(hover, alt.value(0.35), alt.value(0)),
             tooltip=[
                 alt.Tooltip("_date:T", title="Month", format="%b %Y"),
                 alt.Tooltip(f"{value_field}:Q", title=label, format=value_format),
             ],
         )
-        .properties(height=280)
+        .add_params(hover)
     )
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart((line + hover_layer).properties(height=280),
+                    use_container_width=True)
 
 
 def multi_line_chart(
@@ -340,23 +351,34 @@ def multi_line_chart(
         return
 
     value_format = "$,.0f" if money_axis else ",.1f"
-    chart = (
-        alt.Chart(long)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("_date:T", title=None, axis=alt.Axis(format="%b-%Y", labelAngle=-45)),
-            y=alt.Y("value:Q", title=label,
-                    axis=alt.Axis(format="$~s" if money_axis else "~s")),
-            color=alt.Color("series:N", title=None),
-            tooltip=[
-                alt.Tooltip("_date:T", title="Month", format="%b %Y"),
-                alt.Tooltip("series:N", title=""),
-                alt.Tooltip("value:Q", title=label, format=value_format),
-            ],
-        )
-        .properties(height=280)
+    x_enc = alt.X("_date:T", title=None, axis=alt.Axis(format="%b-%Y", labelAngle=-45))
+
+    base = alt.Chart(long)
+    line = base.mark_line(point=True).encode(
+        x=x_enc,
+        y=alt.Y("value:Q", title=label,
+                axis=alt.Axis(format="$~s" if money_axis else "~s")),
+        color=alt.Color("series:N", title=None),
     )
-    st.altair_chart(chart, use_container_width=True)
+
+    # Pivoting the series into columns lets one hover show every line's value at that
+    # month, rather than only whichever line the cursor happens to be touching.
+    names = [str(c) for c in frame.columns]
+    hover = alt.selection_point(nearest=True, on="pointerover",
+                                fields=["_date"], empty=False)
+    hover_layer = (
+        base.transform_pivot("series", value="value", groupby=["_date"])
+        .mark_rule(color="gray")
+        .encode(
+            x=x_enc,
+            opacity=alt.condition(hover, alt.value(0.35), alt.value(0)),
+            tooltip=[alt.Tooltip("_date:T", title="Month", format="%b %Y")]
+            + [alt.Tooltip(n, type="quantitative", format=value_format) for n in names],
+        )
+        .add_params(hover)
+    )
+    st.altair_chart((line + hover_layer).properties(height=280),
+                    use_container_width=True)
 
 
 # ---------- shared panels ----------
