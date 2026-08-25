@@ -122,19 +122,20 @@ def render_watchlist_revenue(symbols: list[str]) -> None:
         st.caption("Same data indexed to 100 at the start — relative growth")
         multi_line_chart(indexed, "Indexed (start = 100)", money_axis=False)
 
-    st.dataframe(
-        pd.DataFrame([
-            {
-                "Coin": sym,
-                "Protocol": m["protocol"],
-                "Latest month": money(m["latest"]),
-                "12-month change": f"{m['growth_pct']:+.1f}%" if m["growth_pct"] is not None else "—",
-                "Period": f"{m['from']} → {m['to']}",
-            }
-            for sym, m in meta.items()
-        ]),
-        hide_index=True, use_container_width=True,
-    )
+    # Rendered as markdown rather than a dataframe so the changes can be coloured.
+    st.markdown("**Revenue change by coin**")
+    for sym, m in meta.items():
+        twelve = coloured_pct(m["growth_pct"]) if m["growth_pct"] is not None else "—"
+        six_rows = [r for r in series[sym] if r.get("revenue") is not None]
+        six = "—"
+        if len(six_rows) > 6:
+            start, end = six_rows[-7]["revenue"], six_rows[-1]["revenue"]
+            if start:
+                six = coloured_pct((end / start - 1) * 100)
+        st.markdown(
+            f"**{sym}** ({m['protocol']}) — latest {money(m['latest'])} · "
+            f"6-month {six} · 12-month {twelve}"
+        )
 
     if without:
         st.caption(
@@ -162,12 +163,10 @@ def render_stock_financials(symbol: str) -> None:
     st.caption(f"{symbol} — quarterly revenue (last {len(quarters)} quarters)")
     month_line_chart(quarters, "revenue", "Revenue",
                      period_field="quarter", period_fmt="%Y-%m-%d")
-    first, last = quarters[0]["revenue"], quarters[-1]["revenue"]
-    if first:
-        st.caption(
-            f"{quarters[0]['quarter']} → {quarters[-1]['quarter']}: "
-            f"{money(first)} → {money(last)} ({(last / first - 1) * 100:+.1f}%)"
-        )
+    # Four quarters is the equivalent recent window for statements.
+    note = change_note(quarters, "revenue", months=4)
+    if note:
+        st.markdown(note.replace("Last 4 months", "Last 4 quarters"))
 
     profit_cols = [c for c in ("gross_profit", "operating_income", "net_income") if c in df]
     if profit_cols and df[profit_cols].notna().any().any():
@@ -204,12 +203,9 @@ def render_protocol_history(name: str, slug: str, primary: str = "revenue") -> N
         if rev:
             st.caption(f"{name} — monthly revenue (last 12 months, current month excluded)")
             month_line_chart(rev, "revenue", "Revenue")
-            first, last = rev[0]["revenue"], rev[-1]["revenue"]
-            if first:
-                st.caption(
-                    f"{rev[0]['month']} → {rev[-1]['month']}: "
-                    f"{money(first)} → {money(last)} ({(last / first - 1) * 100:+.1f}%)"
-                )
+            note = change_note(rev, "revenue")
+            if note:
+                st.markdown(note)
         else:
             st.info("No revenue history for this project.")
 
@@ -217,12 +213,9 @@ def render_protocol_history(name: str, slug: str, primary: str = "revenue") -> N
         if tvl:
             st.caption(f"{name} — monthly TVL (month-end level)")
             month_line_chart(tvl, "tvl", "TVL")
-            first, last = tvl[0]["tvl"], tvl[-1]["tvl"]
-            if first:
-                st.caption(
-                    f"{tvl[0]['month']} → {tvl[-1]['month']}: "
-                    f"{money(first)} → {money(last)} ({(last / first - 1) * 100:+.1f}%)"
-                )
+            note = change_note(tvl, "tvl")
+            if note:
+                st.markdown(note)
         else:
             st.info("No TVL history for this project (not every project locks value).")
 
@@ -273,6 +266,41 @@ def pct(value) -> str:
         return f"{float(value):+.2f}%"
     except (TypeError, ValueError):
         return "—"
+
+
+def coloured_pct(value) -> str:
+    """A signed percentage in Streamlit markdown colour — green up, red down."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    colour = "green" if n > 0 else "red" if n < 0 else "gray"
+    return f":{colour}[{n:+.1f}%]"
+
+
+def change_note(rows: list[dict], value_key: str, months: int = 6) -> str | None:
+    """Markdown summarising the change over the last `months` periods.
+
+    Recent direction is what a reader actually wants: a year-long decline that turned
+    around three months ago reads as "down 52%" over the full window, which hides the
+    turn. Falls back to the whole series when it's shorter than the window.
+    """
+    points = [r for r in rows if r.get(value_key) is not None]
+    if len(points) < 2:
+        return None
+
+    start = points[-(months + 1)] if len(points) > months else points[0]
+    end = points[-1]
+    first, last = start[value_key], end[value_key]
+    if not first:
+        return None
+
+    span = len(points) - 1 if len(points) <= months else months
+    period_key = "month" if "month" in end else "quarter"
+    return (
+        f"Last {span} months: {start[period_key]} → {end[period_key]} · "
+        f"{money(first)} → {money(last)} ({coloured_pct((last / first - 1) * 100)})"
+    )
 
 
 # ---------- charts ----------
