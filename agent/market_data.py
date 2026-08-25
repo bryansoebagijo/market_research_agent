@@ -479,6 +479,71 @@ def protocol_history(slug: str, months: int = 12) -> dict:
     return out
 
 
+def _window_change(rows: list[dict], key: str, periods: int) -> float | None:
+    """Percentage change over the last `periods` entries of a monthly series."""
+    points = [r for r in rows if r.get(key) is not None]
+    if len(points) < 2:
+        return None
+    start = points[-(periods + 1)] if len(points) > periods else points[0]
+    first, last = start[key], points[-1][key]
+    return ((last / first - 1) * 100) if first else None
+
+
+def protocol_health(history: dict) -> dict:
+    """Assess a protocol from its revenue and TVL history alone.
+
+    The verdict comes from the RELATIONSHIP between the two, which is more telling than
+    either on its own: revenue rising while TVL falls means capital is working harder,
+    while TVL rising as revenue falls is fee compression — more money parked, less
+    earned on it. Deliberately rule-based, so it's instant and always says the same
+    thing about the same numbers.
+    """
+    rev = history.get("revenue_monthly") or []
+    tvl = history.get("tvl_monthly") or []
+
+    metrics = {
+        "revenue_3m": _window_change(rev, "revenue", 3),
+        "revenue_6m": _window_change(rev, "revenue", 6),
+        "revenue_12m": _window_change(rev, "revenue", 12),
+        "tvl_3m": _window_change(tvl, "tvl", 3),
+        "tvl_6m": _window_change(tvl, "tvl", 6),
+        "tvl_12m": _window_change(tvl, "tvl", 12),
+        "latest_revenue": rev[-1]["revenue"] if rev else None,
+        "latest_tvl": tvl[-1]["tvl"] if tvl else None,
+    }
+
+    # How hard the locked capital works, annualised from the latest month.
+    if metrics["latest_revenue"] and metrics["latest_tvl"]:
+        metrics["revenue_to_tvl_pct"] = (
+            metrics["latest_revenue"] * 12 / metrics["latest_tvl"] * 100
+        )
+
+    r3, t3 = metrics["revenue_3m"], metrics["tvl_3m"]
+    if r3 is None and t3 is None:
+        metrics.update(verdict="Not enough data", tone="gray",
+                       reason="No revenue or TVL history to assess.")
+        return metrics
+
+    r_up, t_up = (r3 or 0) > 0, (t3 or 0) > 0
+    if r_up and t_up:
+        verdict, tone = "Strengthening", "green"
+        reason = "Revenue and TVL both grew over the last 3 months."
+    elif r_up and not t_up:
+        verdict, tone = "Earning more from less", "green"
+        reason = ("Revenue grew while TVL fell — the protocol is earning more from a "
+                  "smaller capital base, which is efficiency rather than decline.")
+    elif not r_up and t_up:
+        verdict, tone = "Fee compression", "orange"
+        reason = ("TVL grew but revenue fell — more capital is parked in the protocol "
+                  "while it earns less on it, so fees or activity per dollar are shrinking.")
+    else:
+        verdict, tone = "Contracting", "red"
+        reason = "Revenue and TVL both fell over the last 3 months."
+
+    metrics.update(verdict=verdict, tone=tone, reason=reason)
+    return metrics
+
+
 def coin_protocol_slug(symbol: str) -> tuple[str, str] | None:
     """Resolve a coin ticker to its DefiLlama protocol as (slug, display name).
 
