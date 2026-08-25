@@ -8,6 +8,7 @@ hammer the free-tier APIs.
 
 import uuid
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -106,8 +107,9 @@ def render_watchlist_revenue(symbols: list[str]) -> None:
     frame = pd.DataFrame(
         {sym: {row["month"]: row["revenue"] for row in rows} for sym, rows in series.items()}
     ).sort_index()
+    frame.index.name = "month"
     st.caption("Monthly protocol revenue (last 12 months)")
-    st.line_chart(frame, height=280)
+    multi_line_chart(frame, "Revenue")
 
     # Indexed to 100 at the start, so a small protocol's growth is visible next to a
     # large one — absolute lines alone would flatten everything under the biggest.
@@ -118,7 +120,7 @@ def render_watchlist_revenue(symbols: list[str]) -> None:
             if not base.empty and base.iloc[0]:
                 indexed[col] = indexed[col] / base.iloc[0] * 100
         st.caption("Same data indexed to 100 at the start — relative growth")
-        st.line_chart(indexed, height=260)
+        multi_line_chart(indexed, "Indexed (start = 100)", money_axis=False)
 
     st.dataframe(
         pd.DataFrame([
@@ -155,9 +157,11 @@ def render_stock_financials(symbol: str) -> None:
         return
 
     df = pd.DataFrame(quarters).set_index("quarter")
+    df.index.name = "quarter"
 
     st.caption(f"{symbol} — quarterly revenue (last {len(quarters)} quarters)")
-    st.line_chart(df[["revenue"]], height=260)
+    month_line_chart(quarters, "revenue", "Revenue",
+                     period_field="quarter", period_fmt="%Y-%m-%d")
     first, last = quarters[0]["revenue"], quarters[-1]["revenue"]
     if first:
         st.caption(
@@ -168,12 +172,13 @@ def render_stock_financials(symbol: str) -> None:
     profit_cols = [c for c in ("gross_profit", "operating_income", "net_income") if c in df]
     if profit_cols and df[profit_cols].notna().any().any():
         st.caption(f"{symbol} — quarterly profit")
-        st.line_chart(df[profit_cols], height=260)
+        multi_line_chart(df[profit_cols], "Profit", period_fmt="%Y-%m-%d")
 
     margin_cols = [c for c in ("gross_margin", "operating_margin", "net_margin") if c in df]
     if margin_cols and df[margin_cols].notna().any().any():
         st.caption(f"{symbol} — margins (%)")
-        st.line_chart(df[margin_cols], height=240)
+        multi_line_chart(df[margin_cols], "Margin (%)", period_fmt="%Y-%m-%d",
+                         money_axis=False)
         st.caption(
             "Margins matter more than the absolute figures: revenue rising while margins "
             "compress means growth is being bought rather than earned."
@@ -198,7 +203,7 @@ def render_protocol_history(name: str, slug: str, primary: str = "revenue") -> N
     def rev_chart():
         if rev:
             st.caption(f"{name} — monthly revenue (last 12 months, current month excluded)")
-            st.line_chart(pd.DataFrame(rev).set_index("month")[["revenue"]], height=260)
+            month_line_chart(rev, "revenue", "Revenue")
             first, last = rev[0]["revenue"], rev[-1]["revenue"]
             if first:
                 st.caption(
@@ -211,7 +216,7 @@ def render_protocol_history(name: str, slug: str, primary: str = "revenue") -> N
     def tvl_chart():
         if tvl:
             st.caption(f"{name} — monthly TVL (month-end level)")
-            st.line_chart(pd.DataFrame(tvl).set_index("month")[["tvl"]], height=260)
+            month_line_chart(tvl, "tvl", "TVL")
             first, last = tvl[0]["tvl"], tvl[-1]["tvl"]
             if first:
                 st.caption(
@@ -268,6 +273,90 @@ def pct(value) -> str:
         return f"{float(value):+.2f}%"
     except (TypeError, ValueError):
         return "—"
+
+
+# ---------- charts ----------
+
+def _to_dates(df: pd.DataFrame, column: str, fmt: str | None = None) -> pd.DataFrame:
+    """Parse a period column into real dates.
+
+    Kept as datetimes rather than pre-formatted strings so the axis stays in
+    chronological order — "Apr-2026" before "Jan-2026" is what string sorting gives.
+    """
+    out = df.copy()
+    out["_date"] = pd.to_datetime(out[column], format=fmt, errors="coerce")
+    return out.dropna(subset=["_date"])
+
+
+def month_line_chart(
+    rows: list[dict],
+    value_field: str,
+    label: str,
+    period_field: str = "month",
+    period_fmt: str | None = "%Y-%m",
+    money_axis: bool = True,
+) -> None:
+    """Single-series monthly line chart with readable dates and formatted tooltips."""
+    if not rows:
+        return
+    df = _to_dates(pd.DataFrame(rows), period_field, period_fmt)
+    if df.empty:
+        return
+
+    value_format = "$,.0f" if money_axis else ",.2f"
+    chart = (
+        alt.Chart(df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("_date:T", title=None,
+                    axis=alt.Axis(format="%b-%Y", labelAngle=-45, tickCount=len(df))),
+            y=alt.Y(f"{value_field}:Q", title=label,
+                    axis=alt.Axis(format="$~s" if money_axis else "~s")),
+            tooltip=[
+                alt.Tooltip("_date:T", title="Month", format="%b %Y"),
+                alt.Tooltip(f"{value_field}:Q", title=label, format=value_format),
+            ],
+        )
+        .properties(height=280)
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+
+def multi_line_chart(
+    frame: pd.DataFrame,
+    label: str,
+    period_fmt: str | None = "%Y-%m",
+    money_axis: bool = True,
+) -> None:
+    """Multi-series line chart from a wide frame indexed by period."""
+    if frame.empty:
+        return
+    long = frame.reset_index().melt(
+        id_vars=frame.index.name or "index", var_name="series", value_name="value"
+    )
+    period_col = frame.index.name or "index"
+    long = _to_dates(long, period_col, period_fmt).dropna(subset=["value"])
+    if long.empty:
+        return
+
+    value_format = "$,.0f" if money_axis else ",.1f"
+    chart = (
+        alt.Chart(long)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("_date:T", title=None, axis=alt.Axis(format="%b-%Y", labelAngle=-45)),
+            y=alt.Y("value:Q", title=label,
+                    axis=alt.Axis(format="$~s" if money_axis else "~s")),
+            color=alt.Color("series:N", title=None),
+            tooltip=[
+                alt.Tooltip("_date:T", title="Month", format="%b %Y"),
+                alt.Tooltip("series:N", title=""),
+                alt.Tooltip("value:Q", title=label, format=value_format),
+            ],
+        )
+        .properties(height=280)
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 # ---------- shared panels ----------
