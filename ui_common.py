@@ -511,20 +511,39 @@ def multi_line_chart(
     x_enc = alt.X("_date:T", title=None, axis=alt.Axis(format="%b-%Y", labelAngle=-45))
 
     base = alt.Chart(long)
-    line = base.mark_line(point=True).encode(
-        x=x_enc,
-        y=alt.Y("value:Q", title=label,
-                axis=alt.Axis(format="$~s" if money_axis else "~s")),
-        color=alt.Color("series:N", title=None),
+
+    names = [str(c) for c in frame.columns]
+
+    # Clicking a legend entry removes that series; clicking again restores it.
+    # empty=False means nothing is selected initially, so everything shows, and a click
+    # selects just that series — which the inverted filter then drops. (Binding a legend
+    # the conventional way does the opposite: it isolates the clicked series.)
+    # Filtering rather than dimming matters here, because removing the rows lets the
+    # y-axis rescale — the usual reason for hiding a dominant line is to see the rest.
+    # The colour domain is pinned so the legend keeps every entry even once its data is
+    # filtered out, otherwise a hidden series could never be clicked back.
+    hidden = alt.selection_point(fields=["series"], bind="legend", empty=False)
+    line = (
+        base.mark_line(point=True)
+        .encode(
+            x=x_enc,
+            y=alt.Y("value:Q", title=label,
+                    axis=alt.Axis(format="$~s" if money_axis else "~s")),
+            color=alt.Color("series:N", title=None,
+                            scale=alt.Scale(domain=names)),
+        )
+        .add_params(hidden)
+        .transform_filter(~hidden)
     )
 
     # Pivoting the series into columns lets one hover show every line's value at that
-    # month, rather than only whichever line the cursor happens to be touching.
-    names = [str(c) for c in frame.columns]
+    # month, rather than only whichever line the cursor happens to be touching. The same
+    # filter is applied first so a hidden series doesn't linger in the tooltip.
     hover = alt.selection_point(nearest=True, on="pointerover",
                                 fields=["_date"], empty=False)
     hover_layer = (
-        base.transform_pivot("series", value="value", groupby=["_date"])
+        base.transform_filter(~hidden)
+        .transform_pivot("series", value="value", groupby=["_date"])
         .mark_rule(color="gray")
         .encode(
             x=x_enc,
@@ -536,6 +555,11 @@ def multi_line_chart(
     )
     st.altair_chart((line + hover_layer).properties(height=280),
                     use_container_width=True)
+    if len(names) > 1:
+        st.caption(
+            "Click a name in the legend to hide that line (the axis rescales to what's "
+            "left); click it again to bring it back."
+        )
 
 
 # ---------- shared panels ----------
