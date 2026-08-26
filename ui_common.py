@@ -72,8 +72,8 @@ def cached_stock_growth(symbols: tuple[str, ...]):
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def cached_protocol_history(slug: str, months: int = 12):
-    return md.protocol_history(slug, months)
+def cached_protocol_history(slug: str, months: int = 12, include_partial: bool = False):
+    return md.protocol_history(slug, months, include_partial)
 
 
 # Quarterly statements change a few times a year, so this is cached for hours.
@@ -227,6 +227,66 @@ def render_protocol_history(name: str, slug: str, primary: str = "revenue") -> N
     else:
         tvl_chart()
         rev_chart()
+
+
+def render_growth_charts(rows: list[dict]) -> None:
+    """Monthly revenue trends for the fastest-growing projects.
+
+    A single growth percentage says how far a project moved but not how: steady climb,
+    one spike, or a recovery from a collapse all look identical as "+179%". These charts
+    show the shape behind the number.
+    """
+    if not rows:
+        return
+
+    histories: dict[str, list[dict]] = {}
+    partial_month = None
+    with st.spinner("Loading revenue history for each project…"):
+        for r in rows:
+            slug = r.get("slug")
+            if not slug:
+                continue
+            # The current month is kept here: these projects rank as growing BECAUSE of
+            # the last few weeks, so excluding it would hide the very move being shown.
+            hist = cached_protocol_history(slug, 12, True)
+            revenue = hist.get("revenue_monthly") or []
+            if revenue:
+                histories[r["name"]] = revenue
+                partial_month = partial_month or hist.get("partial_month")
+
+    if not histories:
+        st.info("No monthly revenue history available for these projects.")
+        return
+
+    if partial_month:
+        st.caption(
+            f"The final point ({partial_month}) is **month-to-date**, not a complete "
+            "month — it's included because the recent surge is what put these projects "
+            "in this ranking."
+        )
+
+    # Indexed rather than absolute: these projects differ by orders of magnitude, so
+    # absolute lines would flatten every smaller one against the largest.
+    frame = pd.DataFrame(
+        {name: {row["month"]: row["revenue"] for row in rev} for name, rev in histories.items()}
+    ).sort_index()
+    frame.index.name = "month"
+    indexed = frame.copy()
+    for col in indexed.columns:
+        base = indexed[col].dropna()
+        if not base.empty and base.iloc[0]:
+            indexed[col] = indexed[col] / base.iloc[0] * 100
+
+    st.markdown("**Revenue trend, indexed to 100 at the start of the window**")
+    multi_line_chart(indexed, "Indexed revenue", money_axis=False)
+
+    st.markdown("**Each project's monthly revenue**")
+    for name, revenue in histories.items():
+        with st.expander(name):
+            month_line_chart(revenue, "revenue", "Revenue")
+            note = change_note(revenue, "revenue")
+            if note:
+                st.markdown(note)
 
 
 TONE_ICONS = {"green": "🟢", "orange": "🟠", "red": "🔴", "gray": "⚪"}

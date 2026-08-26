@@ -13,6 +13,7 @@ from ui_common import (
     cached_trending_narratives,
     money,
     pct,
+    render_growth_charts,
     render_news,
     render_protocol_history,
     render_signal,
@@ -198,6 +199,8 @@ with growth_tab:
                 ),
                 height=240,
             )
+            st.divider()
+            render_growth_charts(rows)
         elif st.session_state.get("growth_loaded"):
             st.info("No projects currently meet both growth conditions at these sizes.")
     else:

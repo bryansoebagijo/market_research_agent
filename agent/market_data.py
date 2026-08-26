@@ -426,15 +426,18 @@ def _month_key(timestamp) -> str | None:
         return None
 
 
-def protocol_history(slug: str, months: int = 12) -> dict:
+def protocol_history(slug: str, months: int = 12, include_partial: bool = False) -> dict:
     """Monthly TVL and revenue history for one protocol.
 
     The two series aggregate differently and mixing that up would be misleading:
       * TVL is a level (a stock), so a month's value is its LAST reading.
       * Revenue is a flow, so a month's value is the SUM of that month's days.
 
-    The current, partial month is dropped from revenue — a month that's three days old
-    would otherwise look like a collapse next to complete months.
+    By default the current, partial month is dropped from revenue — a month three days
+    old would otherwise look like a collapse next to complete ones. Set include_partial
+    when the point IS the recent move: a growth view that hides the current month hides
+    the growth. The month kept is reported back as `partial_month` so callers can label
+    it rather than presenting month-to-date as a finished month.
     """
     out: dict = {"slug": slug, "tvl_monthly": [], "revenue_monthly": []}
     if not slug:
@@ -469,7 +472,11 @@ def protocol_history(slug: str, months: int = 12) -> dict:
             key = _month_key(point[0])
             if key and point[1] is not None:
                 totals[key] += float(point[1])
-        totals.pop(this_month, None)  # drop the incomplete current month
+        if include_partial:
+            if this_month in totals:
+                out["partial_month"] = this_month
+        else:
+            totals.pop(this_month, None)  # drop the incomplete current month
         out["revenue_monthly"] = [
             {"month": k, "revenue": v} for k, v in sorted(totals.items())
         ][-months:]
