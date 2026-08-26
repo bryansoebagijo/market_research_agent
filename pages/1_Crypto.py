@@ -113,13 +113,6 @@ with rev_tab:
         if rows:
             st.caption("Click a row to see that project's monthly history.")
             chosen = _selected_row(rows, "rev_table")
-            st.bar_chart(
-                pd.DataFrame(
-                    {"revenue 24h ($M)": [r["revenue_24h"] / 1e6 for r in rows]},
-                    index=[r["name"] for r in rows],
-                ),
-                height=220,
-            )
             if chosen:
                 st.divider()
                 render_protocol_history(chosen["name"], chosen.get("slug", ""), "revenue")
@@ -141,13 +134,6 @@ with tvl_tab:
         if rows:
             st.caption("Click a row to see that project's monthly history.")
             chosen = _selected_row(rows, "tvl_table")
-            st.bar_chart(
-                pd.DataFrame(
-                    {"TVL ($B)": [r["tvl"] / 1e9 for r in rows]},
-                    index=[r["name"] for r in rows],
-                ),
-                height=220,
-            )
             if chosen:
                 st.divider()
                 render_protocol_history(chosen["name"], chosen.get("slug", ""), "tvl")
