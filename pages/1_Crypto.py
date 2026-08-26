@@ -222,15 +222,22 @@ try:
     narratives = cached_trending_narratives(5)
     if narratives:
         ncols = st.columns(len(narratives))
-        for col, n in zip(ncols, narratives):
+        for idx, (col, n) in enumerate(zip(ncols, narratives)):
             col.metric(
                 n["name"][:22],
                 pct(n["change_24h"]),
                 help=f"Sector market cap {money(n['market_cap'])} · "
                      f"24h volume {money(n['volume_24h'])}",
             )
-            if n["top_coins"]:
-                col.caption(" · ".join(n["top_coins"]))
+            # Tickers rather than coin names, each one addable to the watchlist.
+            names = n.get("top_coin_names") or []
+            for j, ticker in enumerate(n.get("top_coins") or []):
+                full = names[j] if j < len(names) else ticker
+                if col.button(f"+ {ticker}", key=f"narr_{idx}_{j}_{ticker}",
+                              help=f"{full} — add to watchlist",
+                              use_container_width=True):
+                    watchlist.add("crypto", ticker)
+                    st.rerun()
         st.bar_chart(
             pd.DataFrame(
                 {"24h sector market cap change %": [n["change_24h"] for n in narratives]},

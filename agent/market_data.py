@@ -181,6 +181,31 @@ def trending_coins(limit: int = 7) -> list[dict]:
 MIN_NARRATIVE_MARKET_CAP = 500_000_000
 
 
+_COIN_SYMBOLS: dict = {"at": 0.0, "map": None}
+
+
+def _coin_id_to_symbol() -> dict[str, str]:
+    """CoinGecko coin id -> ticker, for the whole coin universe.
+
+    Category endpoints identify their top coins by id ("ether-fi"), not ticker, so one
+    cached lookup of the full list turns those into the symbols people recognise
+    (ETHFI). ~1.2MB and 18k coins, so it's fetched once an hour rather than per call.
+    """
+    now = time.time()
+    if _COIN_SYMBOLS["map"] is not None and now - _COIN_SYMBOLS["at"] < 3600:
+        return _COIN_SYMBOLS["map"]
+    try:
+        rows = _get("https://api.coingecko.com/api/v3/coins/list")
+        mapping = {
+            c["id"]: (c.get("symbol") or "").upper()
+            for c in rows if isinstance(c, dict) and c.get("id")
+        }
+    except Exception:  # noqa: BLE001 - fall back to showing ids
+        mapping = {}
+    _COIN_SYMBOLS.update({"at": now, "map": mapping})
+    return mapping
+
+
 def trending_narratives(limit: int = 5, min_market_cap: float = MIN_NARRATIVE_MARKET_CAP) -> list[dict]:
     """Hottest crypto sectors right now, ranked by 24h change in sector market cap.
 
@@ -199,22 +224,29 @@ def trending_narratives(limit: int = 5, min_market_cap: float = MIN_NARRATIVE_MA
     ]
     candidates.sort(key=lambda c: c["market_cap_change_24h"], reverse=True)
 
+    symbols = _coin_id_to_symbol()
     out = []
     for c in candidates[:limit]:
-        # top_3_coins_id holds readable ids ("ethereum"); fall back to parsing the
-        # image URLs in top_3_coins when the id list is absent.
-        coins = c.get("top_3_coins_id") or []
-        if not coins:
-            coins = [
-                url.split("/")[-1].split(".")[0].replace("-", " ")
+        # top_3_coins_id holds ids ("ether-fi"); fall back to parsing the image URLs in
+        # top_3_coins when the id list is absent.
+        coin_ids = c.get("top_3_coins_id") or []
+        if not coin_ids:
+            coin_ids = [
+                url.split("/")[-1].split(".")[0]
                 for url in (c.get("top_3_coins") or [])
             ]
+        tickers, names = [], []
+        for cid in coin_ids[:3]:
+            ticker = symbols.get(str(cid))
+            names.append(str(cid).replace("-", " ").title())
+            tickers.append(ticker or str(cid).replace("-", " ").title())
         out.append({
             "name": c.get("name"),
             "change_24h": c.get("market_cap_change_24h"),
             "market_cap": c.get("market_cap"),
             "volume_24h": c.get("volume_24h"),
-            "top_coins": [str(x).replace("-", " ").title() for x in coins[:3]],
+            "top_coins": tickers,
+            "top_coin_names": names,
         })
     return out
 
