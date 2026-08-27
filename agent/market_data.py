@@ -21,6 +21,7 @@ from agent.tools import (
     STOCK_FEEDS,
     _get,
     _num,
+    classify_ticker,
     compute_ema,
     compute_rsi,
     crypto_technicals,
@@ -516,6 +517,97 @@ def protocol_history(slug: str, months: int = 12, include_partial: bool = False)
         out["revenue_error"] = str(exc)[:100]
 
     return out
+
+
+def price_many(symbols: list[str]) -> dict[str, float]:
+    """Current prices for a mixed list of crypto and stock tickers.
+
+    Crypto is fetched in ONE batched CoinGecko call rather than per coin, because that
+    endpoint is the slow one — pricing a portfolio shouldn't cost a request per holding.
+    Stocks go through the existing cached per-symbol quote.
+    """
+    prices: dict[str, float] = {}
+    crypto = [s.upper() for s in symbols if classify_ticker(s) == "crypto"]
+    stocks = [s.upper() for s in symbols if classify_ticker(s) != "crypto"]
+
+    if crypto:
+        ids: dict[str, str] = {}
+        for sym in crypto:
+            try:
+                coin_id = _coingecko_id(sym)
+            except Exception:  # noqa: BLE001
+                coin_id = None
+            if coin_id:
+                ids[coin_id] = sym
+        if ids:
+            try:
+                rows = _get(
+                    "https://api.coingecko.com/api/v3/coins/markets",
+                    {"vs_currency": "usd", "ids": ",".join(ids)},
+                )
+                for m in rows if isinstance(rows, list) else []:
+                    sym = ids.get(m.get("id"))
+                    if sym and m.get("current_price") is not None:
+                        prices[sym] = float(m["current_price"])
+            except Exception:  # noqa: BLE001 - unpriced holdings are reported, not fatal
+                pass
+
+    for sym in stocks:
+        try:
+            data = stock_snapshot(sym).get("data") or {}
+            if data.get("price") is not None:
+                prices[sym] = float(data["price"])
+        except Exception:  # noqa: BLE001
+            continue
+    return prices
+
+
+def daily_returns(symbol: str) -> list[float]:
+    """Daily returns from the close series the technicals already fetch (cached)."""
+    kind = classify_ticker(symbol)
+    tech = (crypto_technicals(symbol) if kind == "crypto" else stock_technicals(symbol))
+    closes = (tech.get("data") or {}).get("closes") or []
+    return [
+        closes[i] / closes[i - 1] - 1
+        for i in range(1, len(closes))
+        if closes[i - 1]
+    ]
+
+
+def correlation_matrix(symbols: list[str]) -> dict:
+    """Pairwise correlation of daily returns between holdings.
+
+    This is the risk most retail dashboards never surface: five positions that move
+    together are one bet wearing five hats, and position count alone hides that.
+    """
+    series = {s.upper(): daily_returns(s) for s in symbols}
+    series = {s: r for s, r in series.items() if len(r) >= 20}
+    names = list(series)
+
+    def corr(a: list[float], b: list[float]) -> float | None:
+        n = min(len(a), len(b))
+        if n < 20:
+            return None
+        a, b = a[-n:], b[-n:]
+        ma, mb = sum(a) / n, sum(b) / n
+        va = sum((x - ma) ** 2 for x in a)
+        vb = sum((y - mb) ** 2 for y in b)
+        if va <= 0 or vb <= 0:
+            return None
+        cov = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+        return cov / (va ** 0.5 * vb ** 0.5)
+
+    matrix = {
+        x: {y: (1.0 if x == y else corr(series[x], series[y])) for y in names}
+        for x in names
+    }
+    pairs = [
+        (x, y, matrix[x][y])
+        for i, x in enumerate(names) for y in names[i + 1:]
+        if matrix[x][y] is not None
+    ]
+    pairs.sort(key=lambda p: abs(p[2]), reverse=True)
+    return {"names": names, "matrix": matrix, "pairs": pairs}
 
 
 def _window_change(rows: list[dict], key: str, periods: int) -> float | None:
