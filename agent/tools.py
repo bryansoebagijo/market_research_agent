@@ -316,7 +316,35 @@ def crypto_protocol_fundamentals(symbol: str) -> dict:
                 bits.append(f"annualised revenue/TVL {rev30 * 12 / tvl * 100:.2f}%")
         else:
             bits.append("no fee revenue reported")
-        return {"text": ", ".join(bits) + ".", "source": src, "data": data}
+
+        text = ", ".join(bits) + "."
+
+        # A month-on-month figure can't tell a recovery from a decline that hasn't
+        # finished. Adding 3/6/12-month windows gives the analyst the trajectory, and
+        # the relationship between the two series is the part that carries meaning.
+        try:
+            from agent.market_data import protocol_health, protocol_history
+
+            health = protocol_health(protocol_history(protocol.get("slug", ""), 12))
+            windows = []
+            for label, rev_key, tvl_key in (
+                ("3m", "revenue_3m", "tvl_3m"),
+                ("6m", "revenue_6m", "tvl_6m"),
+                ("12m", "revenue_12m", "tvl_12m"),
+            ):
+                r, t = health.get(rev_key), health.get(tvl_key)
+                if r is not None and t is not None:
+                    windows.append(f"{label} revenue {r:+.1f}% / TVL {t:+.1f}%")
+            if windows:
+                text += (
+                    " Trend — " + "; ".join(windows)
+                    + f". Read: {health.get('verdict', 'n/a')} — {health.get('reason', '')}"
+                )
+                data["health"] = health.get("verdict")
+        except Exception:  # noqa: BLE001 - the snapshot above still stands on its own
+            pass
+
+        return {"text": text, "source": src, "data": data}
     except Exception as exc:  # noqa: BLE001
         return {"text": f"Protocol data unavailable for {sym} ({exc}).", "source": src}
 
@@ -561,6 +589,34 @@ def stock_earnings(symbol: str) -> dict:
                         "net_margin": round(ni / rv * 100, 1) if ni else None,
                     })
             data["revenue_quarters"] = series
+
+            # A trend summary, because the latest quarter alone can't distinguish a
+            # business compounding from one that just had a good three months. The
+            # analyst reads this text, so the trajectory has to be in it.
+            if len(series) >= 5:
+                latest, year_ago = series[-1], series[-5]
+                rises = sum(
+                    1 for i in range(1, len(series))
+                    if series[i]["revenue"] > series[i - 1]["revenue"]
+                )
+                trend = [
+                    f"Revenue rose in {rises} of the last {len(series) - 1} quarters"
+                ]
+                if year_ago.get("revenue"):
+                    yoy = (latest["revenue"] / year_ago["revenue"] - 1) * 100
+                    trend.append(
+                        f"latest quarter {_big_money(latest['revenue'])} vs "
+                        f"{_big_money(year_ago['revenue'])} a year earlier ({yoy:+.1f}% YoY)"
+                    )
+                for label, key in (("operating", "operating_margin"), ("net", "net_margin")):
+                    now_m, then_m = latest.get(key), year_ago.get(key)
+                    if now_m is not None and then_m is not None:
+                        direction = "expanding" if now_m > then_m else "compressing"
+                        trend.append(
+                            f"{label} margin {now_m:.1f}% vs {then_m:.1f}% a year earlier "
+                            f"({now_m - then_m:+.1f}pp, {direction})"
+                        )
+                parts.append("Trend — " + "; ".join(trend) + ".")
         else:
             parts.append("No quarterly income statements returned.")
     except Exception as exc:  # noqa: BLE001
