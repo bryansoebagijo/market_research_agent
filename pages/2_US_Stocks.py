@@ -11,6 +11,7 @@ from ui_common import (
     money,
     pct,
     render_news,
+    render_save_thesis,
     render_signal,
     render_stock_financials,
     render_watchlist_editor,
@@ -226,3 +227,5 @@ if result:
         "Informational only — produced by a language model with no validated track "
         "record. Not financial advice."
     )
+    if view:
+        render_save_thesis(selected, "stocks", view)

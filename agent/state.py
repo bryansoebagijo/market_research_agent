@@ -69,6 +69,25 @@ class CriticVerdict(BaseModel):
     )
 
 
+class Trigger(BaseModel):
+    """A machine-checkable condition that would invalidate the thesis.
+
+    Prose invalidation conditions read well but can't be monitored. Forcing a measurable
+    threshold alongside them is what makes a thesis trackable — and it's better
+    discipline anyway: "margins might compress" becomes "operating margin below 50%".
+    """
+
+    metric: str = Field(
+        description="One of: rsi, price, revenue_growth_3m, tvl_growth_3m, "
+        "revenue_to_tvl, revenue_yoy, eps_yoy, operating_margin, net_margin. "
+        "Use only metrics relevant to the asset type — the *_yoy and *_margin metrics "
+        "are stocks-only, revenue_growth_3m/tvl_growth_3m/revenue_to_tvl crypto-only."
+    )
+    operator: str = Field(description="Either '<' or '>'.")
+    threshold: float = Field(description="The numeric level that would trip it.")
+    description: str = Field(description="Plain-language statement of the condition.")
+
+
 class AnalystView(BaseModel):
     """A long-horizon value-investor read on the evidence — informational only."""
 
@@ -97,6 +116,13 @@ class AnalystView(BaseModel):
     )
     what_would_change_it: list[str] = Field(
         description="1-3 concrete conditions that would invalidate or flip this view."
+    )
+    triggers: list[Trigger] = Field(
+        default_factory=list,
+        description="Up to 3 of those conditions expressed as measurable thresholds, so "
+        "they can be monitored automatically. Only include a condition here if it can "
+        "honestly be reduced to a number — leave qualitative ones out rather than "
+        "inventing a threshold for them.",
     )
     key_risks: list[str] = Field(description="1-3 main risks to this view.")
 

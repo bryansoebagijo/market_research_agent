@@ -655,6 +655,32 @@ def render_signal(tech: dict) -> None:
     st.caption("Rule-based indicator read, not the analyst's view. Use Analyze for that.")
 
 
+def render_save_thesis(symbol: str, kind: str, view) -> None:
+    """Offer to save an analyst view as a monitorable thesis."""
+    from agent import theses
+
+    def field(name, default=None):
+        return view.get(name, default) if isinstance(view, dict) else getattr(view, name, default)
+
+    triggers = field("triggers", []) or []
+    st.divider()
+    left, right = st.columns([3, 1])
+    if triggers:
+        left.caption(
+            f"{len(triggers)} of these conditions can be measured, so they can be "
+            "monitored automatically on the Theses page."
+        )
+    else:
+        left.caption(
+            "This view's conditions are qualitative, so it'll be saved for your own "
+            "review rather than automatic checking."
+        )
+    if right.button("📌 Save as thesis", key=f"savethesis_{symbol}",
+                    use_container_width=True):
+        theses.save_thesis(symbol, kind, view)
+        st.success(f"Saved — {symbol} is now tracked on the Theses page.")
+
+
 def run_agent_analysis(question: str) -> dict:
     """Run the full agent for an on-demand recommendation, streaming progress."""
     # A checkpointer lets us stream progress and then read the final state back.

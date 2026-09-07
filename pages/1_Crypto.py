@@ -15,6 +15,7 @@ from ui_common import (
     pct,
     render_growth_charts,
     render_news,
+    render_save_thesis,
     render_protocol_history,
     render_signal,
     render_watchlist_editor,
@@ -371,3 +372,5 @@ if result:
         "Informational only — produced by a language model with no validated track "
         "record. Not financial advice."
     )
+    if view:
+        render_save_thesis(selected, "crypto", view)

@@ -107,6 +107,7 @@ def build_graph(review: bool = False, checkpointer: bool | None = None):
             ("agent.state", "SubQuestion"),
             ("agent.state", "CriticVerdict"),
             ("agent.state", "AnalystView"),
+            ("agent.state", "Trigger"),
         ]
     )
     return graph.compile(checkpointer=MemorySaver(serde=serde))

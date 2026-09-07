@@ -519,6 +519,49 @@ def protocol_history(slug: str, months: int = 12, include_partial: bool = False)
     return out
 
 
+def current_metrics(symbol: str) -> dict:
+    """Current values for every metric a thesis trigger can reference.
+
+    Built from the already-cached technicals, protocol health and growth calls, so
+    monitoring a thesis costs nothing beyond what viewing the asset would.
+    """
+    kind = classify_ticker(symbol)
+    out: dict = {}
+
+    tech = (crypto_technicals(symbol) if kind == "crypto" else stock_technicals(symbol))
+    data = tech.get("data") or {}
+    if data.get("rsi") is not None:
+        out["rsi"] = data["rsi"]
+    if data.get("price") is not None:
+        out["price"] = data["price"]
+
+    if kind == "crypto":
+        resolved = None
+        try:
+            resolved = coin_protocol_slug(symbol)
+        except Exception:  # noqa: BLE001
+            resolved = None
+        if resolved and resolved[0]:
+            health = protocol_health(protocol_history(resolved[0], 12))
+            for src, dest in (("revenue_3m", "revenue_growth_3m"),
+                              ("tvl_3m", "tvl_growth_3m"),
+                              ("revenue_to_tvl_pct", "revenue_to_tvl")):
+                if health.get(src) is not None:
+                    out[dest] = health[src]
+    else:
+        growth = stock_growth(symbol) or {}
+        for src, dest in (("revenue_yoy", "revenue_yoy"),
+                          ("eps_yoy", "eps_yoy"),
+                          ("operating_margin", "operating_margin")):
+            if growth.get(src) is not None:
+                out[dest] = growth[src]
+        fin = stock_financials(symbol)
+        quarters = fin.get("quarters") or []
+        if quarters and quarters[-1].get("net_margin") is not None:
+            out["net_margin"] = quarters[-1]["net_margin"]
+    return out
+
+
 def price_many(symbols: list[str]) -> dict[str, float]:
     """Current prices for a mixed list of crypto and stock tickers.
 

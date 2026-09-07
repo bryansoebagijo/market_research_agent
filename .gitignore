@@ -27,3 +27,6 @@ data/watchlists.json
 
 # Positions (local user state)
 data/positions.json
+
+# Theses (local user state)
+data/theses.json
