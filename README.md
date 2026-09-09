@@ -9,6 +9,11 @@ graph, not a linear script.
 > **Not financial advice.** This is a best-effort research assistant. It surfaces data
 > and context; it does not predict prices or tell you to buy or sell.
 
+The agent is the engine; a Streamlit dashboard is the front door. Every panel below is
+live data with **no LLM call** — the agent runs only when you ask it to.
+
+![Crypto dashboard — news with model-written summaries, the assets each story affects, and open interest across derivatives venues](docs/screenshots/crypto-news.png)
+
 ## Why no RAG?
 Markets are a **real-time** domain — prices, indicators, and news change constantly, so
 a fixed vector store would be stale on arrival. The backbone here is **live-data tools**,
@@ -81,6 +86,47 @@ gate sits here on purpose: the plan decides what everything downstream spends ti
 API calls on, so correcting a wrong angle is cheapest at this point. Implemented with
 LangGraph's `interrupt()` — the run suspends, its state is saved by a checkpointer, and
 resuming with your decision continues exactly where it left off.
+
+## The dashboard
+Four pages over the same data layer. The split that matters: **panels are instant and
+LLM-free**, so browsing costs nothing and stays fast, while the agent runs only behind an
+explicit *Analyze* button — which is also what keeps a free-tier API key viable.
+
+### Crypto — what's moving and what's actually earning
+Protocol revenue and TVL are ranked separately on purpose: plenty of high-revenue
+projects hold no TVL (a stablecoin issuer earns without locking value), so one list
+can't serve both questions. Narratives rank by **sector** market cap, so a move counts
+only when the whole basket moves rather than one coin.
+
+![Top projects ranked by revenue and TVL, and trending narratives with the tickers in each](docs/screenshots/crypto-projects.png)
+
+### US Stocks — the quarterly trend, not one quarter
+Twelve quarters of revenue, profit and margins from the income statements. The trend is
+the point: NVDA's revenue more than doubled year-on-year **while** margins expanded,
+which is a different signal from growth alone — revenue rising as margins compress means
+growth is being bought rather than earned.
+
+![Quarterly revenue, profit and margin charts for NVDA across twelve quarters](docs/screenshots/stocks-financials.png)
+
+### Portfolio — position count flatters a portfolio
+Cost basis turns every other number into money at risk. Weights are computed on **current
+market value** rather than cost, since a winner that doubled is a bigger bet today than
+it was on entry. Correlation is the part most dashboards skip: holdings that move
+together are one bet wearing several hats, and only this surfaces it.
+
+![Portfolio holdings with unrealised P&L and allocation weights](docs/screenshots/portfolio.png)
+
+![Concentration warning and a daily-return correlation matrix between holdings](docs/screenshots/portfolio-risk.png)
+
+### Theses — watching for what would prove you wrong
+The analyst always states what would change its mind. Those conditions are saved and
+checked against live data, so a view is held the way a professional holds one: decide
+upfront what would break it, then watch only for that. Measurable conditions are
+evaluated **deterministically** — no model call, so the same data always gives the same
+verdict — and genuinely qualitative ones are flagged for your judgement instead of being
+assigned a fake threshold.
+
+![A saved NVDA thesis with each monitored condition shown against its current value](docs/screenshots/theses.png)
 
 ## Stack
 - **LangGraph** — stateful multi-node orchestration with a typed shared state
