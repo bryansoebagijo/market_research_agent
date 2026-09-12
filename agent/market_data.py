@@ -316,22 +316,29 @@ def _defillama_protocols() -> list[dict]:
     except Exception:  # noqa: BLE001 - degrade to TVL-only rather than failing outright
         fees = {}
 
+    # Keyed three ways because the two endpoints don't always agree on a name. Each
+    # holds (tvl, token symbol) — the symbol is what lets a protocol's revenue be
+    # compared against its token's market cap.
     by_id, by_slug, by_name = {}, {}, {}
     for p in protocols:
-        tvl = p.get("tvl")
+        pair = (p.get("tvl"), (p.get("symbol") or "").upper())
         if p.get("id"):
-            by_id[str(p["id"])] = tvl
+            by_id[str(p["id"])] = pair
         if p.get("slug"):
-            by_slug[str(p["slug"]).lower()] = tvl
+            by_slug[str(p["slug"]).lower()] = pair
         if p.get("name"):
-            by_name[str(p["name"]).lower()] = tvl
+            by_name[str(p["name"]).lower()] = pair
 
-    def tvl_for(entry: dict):
+    def pair_for(entry: dict):
         return (
             by_id.get(str(entry.get("defillamaId")))
             or by_slug.get(str(entry.get("slug", "")).lower())
             or by_name.get(str(entry.get("name", "")).lower())
+            or (None, "")
         )
+
+    def tvl_for(entry: dict):
+        return pair_for(entry)[0]
 
     rows: list[dict] = []
     seen: set[str] = set()
@@ -349,6 +356,7 @@ def _defillama_protocols() -> list[dict]:
             # The 30 days *before* the last 30 — the baseline for month-on-month growth.
             "revenue_prev_30d": _num(e.get("total60dto30d")),
             "tvl": tvl_for(e),
+            "symbol": pair_for(e)[1],
             "logo": e.get("logo") or "",
         })
 
@@ -517,6 +525,135 @@ def protocol_history(slug: str, months: int = 12, include_partial: bool = False)
         out["revenue_error"] = str(exc)[:100]
 
     return out
+
+
+_MULTIPLES_CACHE: dict = {"at": 0.0, "rows": None}
+
+# Categories where a token's market cap simply isn't a claim on the fee line DefiLlama
+# reports. An L1's value is a monetary/ecosystem claim, not a multiple of one chain's
+# revenue, and pricing it that way would be nonsense dressed up as analysis.
+MULTIPLE_EXCLUDED_CATEGORIES = {"Chain", "CEX"}
+
+# A multiple on a tiny revenue base is arithmetic, not information.
+MIN_ANNUALISED_REVENUE = 5_000_000
+
+# Past this, the market cap is almost certainly pricing something far beyond the fees
+# being measured (an exchange token, an ecosystem bet), so the multiple gets a caveat
+# rather than being presented as a valuation.
+IMPLAUSIBLE_MULTIPLE = 500
+
+
+def _multiples_universe() -> list[dict]:
+    """Every protocol token whose revenue can be honestly compared to its market cap.
+
+    Two traps make the naive version misleading, and both showed up in the data:
+
+    * DefiLlama lists sub-products separately, each carrying the parent token's ticker.
+      Valuing Jupiter's whole market cap against its Lend product alone gave 294,755x;
+      summing every product under a ticker gives 9.7x. So revenue is aggregated per
+      token, not per protocol entry.
+    * Chain and CEX tokens price an entire ecosystem, so dividing by one protocol's
+      fees produced 2,100x for SOL. Those categories are excluded outright.
+    """
+    now = time.time()
+    if _MULTIPLES_CACHE["rows"] is not None and now - _MULTIPLES_CACHE["at"] < 1800:
+        return _MULTIPLES_CACHE["rows"]
+
+    per_token: dict[str, dict] = {}
+    for p in _defillama_protocols():
+        sym = (p.get("symbol") or "").upper()
+        revenue = p.get("revenue_30d") or 0
+        if sym in ("", "-") or not revenue:
+            continue
+        if p.get("category") in MULTIPLE_EXCLUDED_CATEGORIES:
+            continue
+        entry = per_token.setdefault(
+            sym, {"symbol": sym, "revenue_30d": 0.0, "tvl": 0.0,
+                  "by_category": {}, "products": []}
+        )
+        entry["revenue_30d"] += revenue
+        entry["tvl"] += p.get("tvl") or 0
+        entry["products"].append(p.get("name") or "")
+        cat = p.get("category") or "—"
+        entry["by_category"][cat] = entry["by_category"].get(cat, 0) + revenue
+
+    try:
+        markets = _get(
+            "https://api.coingecko.com/api/v3/coins/markets",
+            {"vs_currency": "usd", "order": "market_cap_desc",
+             "per_page": 250, "page": 1},
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    caps = {
+        (m.get("symbol") or "").upper(): m.get("market_cap")
+        for m in (markets if isinstance(markets, list) else [])
+        if m.get("market_cap")
+    }
+
+    rows = []
+    for sym, e in per_token.items():
+        cap = caps.get(sym)
+        annual = e["revenue_30d"] * 12
+        if not cap or annual < MIN_ANNUALISED_REVENUE:
+            continue
+        rows.append({
+            "symbol": sym,
+            "market_cap": cap,
+            "annual_revenue": annual,
+            "tvl": e["tvl"] or None,
+            # The category earning most of this token's revenue is the fair peer group.
+            "category": max(e["by_category"], key=e["by_category"].get),
+            "product_count": len(e["products"]),
+            "ps": cap / annual,
+            "mcap_to_tvl": (cap / e["tvl"]) if e["tvl"] else None,
+        })
+    _MULTIPLES_CACHE.update({"at": now, "rows": rows})
+    return rows
+
+
+def _median(values: list[float]) -> float | None:
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    return vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
+
+
+def token_multiples(symbol: str) -> dict:
+    """Crypto's price-to-sales: market cap against annualised protocol revenue.
+
+    Returned with a peer median, because a bare multiple carries no information — 34x
+    only means something once you know comparable protocols trade at 20x. Peers are the
+    same DefiLlama category where at least three exist, since lending and DEX tokens
+    aren't priced alike; otherwise it falls back to all protocol tokens and says so.
+    """
+    sym = symbol.upper()
+    universe = _multiples_universe()
+    me = next((r for r in universe if r["symbol"] == sym), None)
+    if me is None:
+        return {"symbol": sym, "available": False}
+
+    peers = [r for r in universe if r["category"] == me["category"] and r["symbol"] != sym]
+    basis = me["category"]
+    if len(peers) < 2:
+        peers = [r for r in universe if r["symbol"] != sym]
+        basis = "all protocol tokens"
+
+    peer_ps = _median([r["ps"] for r in peers])
+    return {
+        **me,
+        "available": True,
+        "peer_basis": basis,
+        "peer_count": len(peers),
+        "peer_median_ps": peer_ps,
+        "vs_peers_pct": ((me["ps"] / peer_ps - 1) * 100) if peer_ps else None,
+        "cheaper_than": (
+            sum(1 for r in peers if r["ps"] > me["ps"]) / len(peers) * 100
+            if peers else None
+        ),
+        "implausible": me["ps"] > IMPLAUSIBLE_MULTIPLE,
+    }
 
 
 def current_metrics(symbol: str) -> dict:

@@ -289,6 +289,60 @@ def render_growth_charts(rows: list[dict]) -> None:
                 st.markdown(note)
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_token_multiples(symbol: str):
+    return md.token_multiples(symbol)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_multiples_universe():
+    return md._multiples_universe()
+
+
+def render_token_multiples(symbol: str) -> None:
+    """Market cap against annualised protocol revenue, next to a peer median."""
+    m = cached_token_multiples(symbol)
+    if not m.get("available"):
+        st.caption(
+            f"No revenue multiple for {symbol.upper()}: it either earns no protocol fees "
+            "or its market cap prices a whole ecosystem (an L1 or exchange token) rather "
+            "than a claim on one fee line, which makes the ratio meaningless."
+        )
+        return
+
+    st.markdown("**Valuation multiple**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Market cap / revenue", f"{m['ps']:.1f}x",
+              help="Annualised from the last 30 days of protocol revenue — crypto's "
+                   "equivalent of price-to-sales.")
+    c2.metric(f"{m['peer_basis'][:16]} median", f"{m['peer_median_ps']:.1f}x",
+              help=f"Median across {m['peer_count']} comparable tokens.")
+    if m.get("mcap_to_tvl") is not None:
+        c3.metric("Market cap / TVL", f"{m['mcap_to_tvl']:.2f}x")
+
+    if m.get("vs_peers_pct") is not None and not m["implausible"]:
+        direction = "above" if m["vs_peers_pct"] > 0 else "below"
+        st.markdown(
+            f"Trading **{abs(m['vs_peers_pct']):.0f}% {direction}** the "
+            f"{m['peer_basis']} median — cheaper than "
+            f"**{m['cheaper_than']:.0f}%** of its peers."
+        )
+
+    if m["implausible"]:
+        st.warning(
+            f"{m['ps']:.0f}x is high enough that the market cap is almost certainly "
+            "pricing something well beyond these fees — treat the ratio as noise here, "
+            "not as a valuation."
+        )
+
+    st.caption(
+        f"Revenue summed across {m['product_count']} protocol(s) carrying this ticker, "
+        f"annualised: {money(m['annual_revenue'])}. **The caveat that matters:** many "
+        "tokens are governance-only and have no claim on the fees being counted, so a "
+        "low multiple is a reason to check the token's rights, not a conclusion."
+    )
+
+
 TONE_ICONS = {"green": "🟢", "orange": "🟠", "red": "🔴", "gray": "⚪"}
 
 

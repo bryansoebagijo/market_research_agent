@@ -344,6 +344,31 @@ def crypto_protocol_fundamentals(symbol: str) -> dict:
         except Exception:  # noqa: BLE001 - the snapshot above still stands on its own
             pass
 
+        # A revenue figure without a multiple can't answer "is it expensive?", which is
+        # the value investor's actual question. The peer median is what makes it mean
+        # anything, so both go in together.
+        try:
+            from agent.market_data import token_multiples
+
+            mult = token_multiples(symbol)
+            if mult.get("available") and not mult.get("implausible"):
+                text += (
+                    f" Valuation — market cap {_big_money(mult['market_cap'])} is "
+                    f"{mult['ps']:.1f}x annualised revenue, against a median "
+                    f"{mult['peer_median_ps']:.1f}x across {mult['peer_count']} "
+                    f"{mult['peer_basis']}"
+                )
+                if mult.get("cheaper_than") is not None:
+                    text += f" (cheaper than {mult['cheaper_than']:.0f}% of them)"
+                text += (
+                    ". Note many tokens are governance-only with no claim on these fees,"
+                    " so the multiple is a starting point, not a valuation."
+                )
+                data["ps_ratio"] = mult["ps"]
+                data["peer_median_ps"] = mult["peer_median_ps"]
+        except Exception:  # noqa: BLE001
+            pass
+
         return {"text": text, "source": src, "data": data}
     except Exception as exc:  # noqa: BLE001
         return {"text": f"Protocol data unavailable for {sym} ({exc}).", "source": src}

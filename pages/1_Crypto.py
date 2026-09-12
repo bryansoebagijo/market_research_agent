@@ -7,6 +7,7 @@ from agent import watchlist
 from ui_common import (
     cached_coin_overview,
     cached_growing_protocols,
+    cached_multiples_universe,
     cached_open_interest,
     cached_top_protocols,
     cached_trending_coins,
@@ -18,6 +19,7 @@ from ui_common import (
     render_save_thesis,
     render_protocol_history,
     render_signal,
+    render_token_multiples,
     render_watchlist_editor,
     render_watchlist_revenue,
     run_agent_analysis,
@@ -76,8 +78,8 @@ st.caption(
     "value — so the two rankings deliberately differ."
 )
 
-rev_tab, tvl_tab, growth_tab = st.tabs(
-    ["By revenue (24h)", "By TVL", "Growing month-over-month"]
+rev_tab, tvl_tab, growth_tab, value_tab = st.tabs(
+    ["By revenue (24h)", "By TVL", "Growing month-over-month", "By valuation"]
 )
 
 
@@ -195,6 +197,44 @@ with growth_tab:
             "Not loaded — this one needs a request per project for monthly TVL history, "
             "so it's on demand to keep the page fast."
         )
+
+with value_tab:
+    st.caption(
+        "Market cap against annualised protocol revenue — crypto's price-to-sales. Only "
+        "tokens whose fees plausibly accrue to them qualify: revenue is summed across "
+        "every product sharing a ticker (Jupiter's token earns *all* Jupiter revenue, "
+        "and valuing it against one product alone reads as 294,000x), chain and "
+        "exchange tokens are excluded because their market cap prices a whole ecosystem "
+        "rather than one fee line, and a $5M annual revenue floor keeps arithmetic on "
+        "near-zero bases out."
+    )
+    try:
+        rows = cached_multiples_universe()
+        if rows:
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Token": r["symbol"],
+                        "Category": r["category"],
+                        "Market cap": money(r["market_cap"]),
+                        "Annual revenue": money(r["annual_revenue"]),
+                        "Mcap/revenue": f"{r['ps']:.1f}x",
+                        "Mcap/TVL": f"{r['mcap_to_tvl']:.2f}x" if r.get("mcap_to_tvl") else "—",
+                    }
+                    for r in sorted(rows, key=lambda r: r["ps"])
+                ]),
+                hide_index=True, use_container_width=True, height=420,
+            )
+            st.caption(
+                f"{len(rows)} tokens qualify. **A low multiple is a question, not a "
+                "conclusion:** many of these tokens are governance-only with no claim "
+                "on the fees being counted, so cheap can simply mean the holder gets "
+                "none of it."
+            )
+        else:
+            st.info("Valuation data unavailable right now (DefiLlama fees or CoinGecko).")
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"Couldn't load valuation multiples: {exc}")
 
 st.divider()
 
@@ -329,6 +369,10 @@ if tech:
         st.line_chart(pd.DataFrame({"close": tech["closes"]}), height=220)
 else:
     st.info(data.get("technicals_text") or "Indicators unavailable for this coin.")
+
+# --- valuation multiple ---
+st.divider()
+render_token_multiples(selected)
 
 # --- on-demand full analysis ---
 st.divider()
