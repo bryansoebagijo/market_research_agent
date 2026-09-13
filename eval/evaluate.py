@@ -33,7 +33,10 @@ from pathlib import Path
 
 from config import ROOT_DIR, settings
 from agent.graph import build_graph
-from eval.judge import judge_run
+from eval.judge import judge_provider, judge_run
+from eval.numeric_check import check_numbers
+
+HISTORY_DIR = ROOT_DIR / "eval" / "history"
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -81,6 +84,7 @@ def evaluate_one(item: dict, judge: bool) -> dict:
 
     row = {
         "question": question,
+        "case_type": item.get("case_type", "—"),
         "ticker_recall": ticker_recall,
         "focus_coverage": focus_coverage,
         "evidence_count": len(evidence),
@@ -91,6 +95,9 @@ def evaluate_one(item: dict, judge: bool) -> dict:
         "has_report": bool(report),
         "has_analyst_view": view is not None,
     }
+
+    # --- deterministic faithfulness (no model, no cost, always runs) ---
+    row.update(check_numbers(report, evidence, view, question=question))
 
     # --- quality metrics (judge) ---
     if judge:
@@ -114,29 +121,108 @@ def _avg(rows: list[dict], key: str):
     return round(sum(vals) / len(vals), 3) if vals else None
 
 
-def print_report(rows: list[dict], judged: bool) -> None:
+def save_run(rows: list[dict], judged: bool) -> Path:
+    """Append this run to the history so scores can be compared, not just read once."""
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    model, independent = judge_provider()
+    path = HISTORY_DIR / f"{time.strftime('%Y%m%d-%H%M%S')}.json"
+    path.write_text(json.dumps({
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "agent_model": settings.gemini_model,
+        "judge_model": model if judged else None,
+        "judge_independent": independent if judged else None,
+        "cases": len(rows),
+        "summary": {k: _avg(rows, k) for k in (
+            "ticker_recall", "focus_coverage", "data_availability", "source_diversity",
+            "critic_passes", "numeric_traceability", "report_faithfulness",
+            "report_relevance", "analyst_groundedness",
+        )},
+        "rows": rows,
+    }, indent=2), encoding="utf-8")
+    return path
+
+
+def previous_run(exclude: Path) -> dict | None:
+    """The most recent earlier run, for a regression comparison."""
+    if not HISTORY_DIR.exists():
+        return None
+    runs = sorted(p for p in HISTORY_DIR.glob("*.json") if p != exclude)
+    if not runs:
+        return None
+    try:
+        return json.loads(runs[-1].read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _delta(now, before) -> str:
+    """A signed change against the previous run, or blank when not comparable."""
+    if not isinstance(now, (int, float)) or not isinstance(before, (int, float)):
+        return ""
+    diff = now - before
+    if abs(diff) < 0.0005:
+        return "   (unchanged)"
+    return f"   ({diff:+.3f} vs last run)"
+
+
+def print_report(rows: list[dict], judged: bool, prev: dict | None = None) -> None:
     line = "=" * 72
+    before = (prev or {}).get("summary", {})
+
+    def d(key):
+        return _delta(_avg(rows, key), before.get(key))
+
     print("\n" + line)
     print("AGENT EVALUATION REPORT")
     print(line)
     print(f"Questions evaluated : {len(rows)}")
+    if prev:
+        print(f"Compared against    : {prev.get('timestamp', 'previous run')} "
+              f"({prev.get('cases', '?')} cases)")
     print("\n--- Trajectory (did it behave correctly?) ---")
-    print(f"Ticker recall       : {_avg(rows, 'ticker_recall')}   (found the right tickers)")
-    print(f"Focus coverage      : {_avg(rows, 'focus_coverage')}   (planned the expected angles)")
-    print(f"Data availability   : {_avg(rows, 'data_availability')}   (findings with real data)")
-    print(f"Source diversity    : {_avg(rows, 'source_diversity')}   (distinct sources per run)")
-    print(f"Critic passes       : {_avg(rows, 'critic_passes')}   (research rounds)")
+    print(f"Ticker recall       : {_avg(rows, 'ticker_recall')}   (found the right tickers){d('ticker_recall')}")
+    print(f"Focus coverage      : {_avg(rows, 'focus_coverage')}   (planned the expected angles){d('focus_coverage')}")
+    print(f"Data availability   : {_avg(rows, 'data_availability')}   (findings with real data){d('data_availability')}")
+    print(f"Source diversity    : {_avg(rows, 'source_diversity')}   (distinct sources per run){d('source_diversity')}")
+    print(f"Critic passes       : {_avg(rows, 'critic_passes')}   (research rounds){d('critic_passes')}")
     print(f"Produced report     : {sum(r['has_report'] for r in rows)}/{len(rows)}")
     print(f"Produced analyst    : {sum(r['has_analyst_view'] for r in rows)}/{len(rows)}")
 
+    # Deterministic first: it needs no model, so it's the one number here that can't be
+    # talked into a good score.
+    print("\n--- Faithfulness (deterministic, no model involved) ---")
+    print(f"Numeric traceability: {_avg(rows, 'numeric_traceability')}   "
+          f"(figures found in the evidence){d('numeric_traceability')}")
+    flagged = [r for r in rows if r.get("unverified_count")]
+    print(f"Cases with untraced : {len(flagged)}/{len(rows)}   "
+          "(may be derived rather than invented — worth reading)")
+
     if judged:
-        print("\n--- Quality (LLM-as-judge) ---")
-        print(f"Report faithfulness : {_avg(rows, 'report_faithfulness')}   (claims supported by evidence)")
-        print(f"Report relevance    : {_avg(rows, 'report_relevance')}   (answers the question)")
-        print(f"Analyst groundedness: {_avg(rows, 'analyst_groundedness')}   (stance follows the evidence)")
+        model, independent = judge_provider()
+        print(f"\n--- Quality (LLM-as-judge: {model}) ---")
+        if not independent:
+            print("  ! Same model family as the agent, so this grade is NOT")
+            print("    provider-independent. Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+            print("    to switch the judge to a different provider.")
+        print(f"Report faithfulness : {_avg(rows, 'report_faithfulness')}   (claims supported by evidence){d('report_faithfulness')}")
+        print(f"Report relevance    : {_avg(rows, 'report_relevance')}   (answers the question){d('report_relevance')}")
+        print(f"Analyst groundedness: {_avg(rows, 'analyst_groundedness')}   (stance follows the evidence){d('analyst_groundedness')}")
         errors = [r for r in rows if "judge_error" in r]
         if errors:
             print(f"Judge errors        : {len(errors)} (excluded from averages)")
+
+    # Honesty cases are the ones worth eyeballing: the failure mode they test is a
+    # confident answer where the right move was to decline.
+    honesty = [r for r in rows if str(r.get("case_type", "")).startswith("honesty_")]
+    if honesty:
+        print("\n--- Honesty cases (should decline, not confabulate) ---")
+        for r in honesty:
+            bits = [f"real-data {r['data_availability']}"]
+            if r.get("numeric_traceability") is not None:
+                bits.append(f"traceability {r['numeric_traceability']}")
+            if "report_faithfulness" in r:
+                bits.append(f"faith {r['report_faithfulness']}")
+            print(f"  {r['case_type']:28} {' | '.join(bits)}")
 
     print("\n" + "-" * 72)
     for r in rows:
@@ -150,6 +236,10 @@ def print_report(rows: list[dict], judged: bool) -> None:
             print(f"   {r.get('judge_reason', '')[:100]}")
         if "judge_error" in r:
             print(f"   judge error: {r['judge_error']}")
+        # Untraced figures, shown where they appeared: a derived number and an invented
+        # one look identical as bare values, and only the surrounding text tells them apart.
+        for u in r.get("unverified") or []:
+            print(f"   untraced {u['value']:g}: {u['context']}")
     print(line)
 
 
@@ -158,10 +248,21 @@ def main() -> None:
     parser.add_argument("--dataset", default=str(ROOT_DIR / "eval" / "dataset.json"))
     parser.add_argument("--no-judge", action="store_true", help="Skip LLM-as-judge scoring.")
     parser.add_argument("--limit", type=int, default=None, help="Only the first N questions.")
+    parser.add_argument(
+        "--case-type", default=None,
+        help="Only cases whose case_type starts with this (e.g. 'honesty' for the "
+             "decline-rather-than-confabulate cases). A full run costs ~120 LLM calls, "
+             "so this is how you check one behaviour without spending a day's quota.",
+    )
     args = parser.parse_args()
 
     with open(args.dataset, "r", encoding="utf-8") as f:
         dataset = json.load(f)
+    if args.case_type:
+        dataset = [d for d in dataset
+                   if str(d.get("case_type", "")).startswith(args.case_type)]
+        if not dataset:
+            sys.exit(f"No cases with case_type starting '{args.case_type}'.")
     if args.limit:
         dataset = dataset[: args.limit]
 
@@ -173,7 +274,9 @@ def main() -> None:
         if judge and i < len(dataset):
             time.sleep(settings.judge_delay_seconds)  # pace against free-tier limits
 
-    print_report(rows, judged=judge)
+    path = save_run(rows, judged=judge)
+    print_report(rows, judged=judge, prev=previous_run(exclude=path))
+    print(f"\nRun saved to {path.relative_to(ROOT_DIR)} — the next run compares against it.")
 
 
 if __name__ == "__main__":

@@ -12,8 +12,15 @@ So a separate model reads the evidence, the report, and the analyst view, and sc
                            it acknowledge conflicting signals rather than cherry-pick?
 
 The judge deliberately uses a DIFFERENT model from the one that produced the output, so
-it isn't grading itself with the same blind spots. Both are Gemini here (that's what's
-free), so the independence is partial — a different provider would be stronger.
+it isn't grading itself with the same blind spots. Set ANTHROPIC_API_KEY or
+OPENAI_API_KEY and it becomes genuinely provider-independent; with neither, it falls
+back to a different Gemini model and the evaluation report says so, because a
+same-family grade shouldn't be presented as an independent one.
+
+An LLM judge is also not the only check here: eval/numeric_check.py verifies every
+figure in the report against the gathered evidence deterministically, with no model
+involved at all. That's the more trustworthy faithfulness signal of the two — it just
+can't assess anything that isn't a number.
 """
 
 from functools import lru_cache
@@ -50,11 +57,50 @@ JUDGE_SYSTEM = (
 )
 
 
+def judge_provider() -> tuple[str, bool]:
+    """(judge model name, whether it comes from a different provider than the agent).
+
+    Exposed so the evaluation report can state how independent the grade actually is.
+    A same-family judge still catches plenty, but claiming independence it doesn't have
+    would overstate the numbers.
+    """
+    if settings.anthropic_api_key:
+        return settings.anthropic_judge_model, True
+    if settings.openai_api_key:
+        return settings.openai_judge_model, True
+    return settings.judge_model, False
+
+
 @lru_cache(maxsize=1)
 def _judge_llm():
-    """The judge model — different from the agent's generation model on purpose."""
+    """The judge model, preferring a different PROVIDER to the agent's.
+
+    Anthropic or OpenAI is used whenever a key for either is set; otherwise this falls
+    back to a different Gemini model. The fallback shares a model family with the agent
+    and therefore some of its blind spots — which is why judge_provider() reports it.
+    """
+    if settings.anthropic_api_key:
+        from langchain_anthropic import ChatAnthropic  # optional, judge-only dependency
+
+        return ChatAnthropic(
+            model=settings.anthropic_judge_model,
+            api_key=settings.anthropic_api_key,
+            temperature=0.0,
+        ).with_structured_output(JudgeScores)
+
+    if settings.openai_api_key:
+        from langchain_openai import ChatOpenAI  # optional, judge-only dependency
+
+        return ChatOpenAI(
+            model=settings.openai_judge_model,
+            api_key=settings.openai_api_key,
+            temperature=0.0,
+        ).with_structured_output(JudgeScores)
+
     if not settings.gemini_api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set; the judge cannot run.")
+        raise RuntimeError(
+            "No judge key set — need ANTHROPIC_API_KEY, OPENAI_API_KEY or GEMINI_API_KEY."
+        )
     return ChatGoogleGenerativeAI(
         model=settings.judge_model,
         google_api_key=settings.gemini_api_key,

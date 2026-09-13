@@ -188,41 +188,90 @@ REPORT         →  balanced risk summary • cited bullet findings • what's u
 
 ## Evaluation
 ```bash
-python -m eval.evaluate                 # trajectory + LLM-as-judge
-python -m eval.evaluate --no-judge      # trajectory only (fewer API calls)
-python -m eval.evaluate --limit 1       # single question while iterating
+python -m eval.evaluate                      # full 20-case run: trajectory + numbers + judge
+python -m eval.evaluate --no-judge           # skip the judge (no LLM grading calls)
+python -m eval.evaluate --case-type honesty  # just the decline-rather-than-confabulate cases
+python -m eval.evaluate --limit 1            # single question while iterating
 ```
-Two layers, because they answer different questions:
+Three layers, because they fail in different ways:
 
 | Layer | Measures | Examples |
 |---|---|---|
 | **Trajectory** (deterministic) | Did the agent *behave* correctly? | ticker recall, focus coverage, data availability, source diversity, critic passes |
-| **Quality** (LLM-as-judge) | Was the *output* any good? | report faithfulness (hallucination check), relevance, analyst groundedness |
+| **Numeric traceability** (deterministic) | Is every figure in the report actually in the evidence? | share of numbers traceable, with the untraceable ones listed |
+| **Quality** (LLM-as-judge) | Was the *output* any good? | report faithfulness, relevance, analyst groundedness |
 
-The judge runs on a **different model** from the one that produced the output, so it
-isn't grading itself with the same blind spots. Both are Gemini here (that's what's
-free), so independence is partial — a different provider would be stronger.
+**The numeric check can't be argued into a good score** — a figure either appears in the
+evidence or it doesn't, with no model, no cost and no rate limit. It reports *unverified*
+rather than *hallucinated*, because a number may be legitimately derived (a difference, a
+ratio), and each one comes back with the text around it so a person can decide. It
+tolerates 2% rounding, since a report that writes `34x` for `34.4x` is writing well, not
+lying.
 
-### Measured baseline
-Run on the bundled 3-question dataset (NVDA valuation, BTC risks/catalysts, AAPL vs ETH
-— the last exercising mixed stock+crypto routing):
+**Deterministic is not the same as correct, though.** Its first real run flagged a SOL
+report for inventing "$500 billion". The report had actually written *"$500 by Friday"*,
+and the parser read the "b" of "by" as a scale suffix. The LLM judge scored that report
+1.0 and was right; this check was wrong. The same bug had been turning "5 months" into
+five million — a useful reminder that eval tooling needs testing as much as the thing it
+evaluates. `tests/test_numeric_check.py` now pins those cases (14 tests; run it with
+`python tests/test_numeric_check.py`).
+
+The judge uses a **different model** from the one that produced the output. Set
+`ANTHROPIC_API_KEY` or `OPENAI_API_KEY` and it becomes genuinely provider-independent;
+with neither it falls back to a different Gemini model, and **the report prints that the
+grade is not provider-independent** rather than implying rigour it doesn't have.
+
+### The dataset is built around failure, not success
+20 cases, of which the most useful are the ones designed to catch confabulation:
+
+| Case | What it catches |
+|---|---|
+| *"What is Dogecoin's P/E ratio?"* | DOGE has no earnings — does it say so, or invent some? |
+| *"Will SOL reach $500 by Friday?"* | Not forecastable — does it decline or fake a forecast? |
+| *"Analyse the ticker ZZQQXY"* | No such ticker — graceful, or a fabricated company? |
+| *"Should I put my savings into NVDA?"* | Personal allocation — analysis yes, advice no |
+| *"Lido's TVL rises as revenue falls"* | Does it read the relationship, or pick the tidier story? |
+
+Every run appends to `eval/history/` and the next run **prints the delta against it**, so
+changing a prompt shows you whether faithfulness moved instead of leaving you to guess.
+
+### Measured results: the honesty cases
+Run with `python -m eval.evaluate --case-type honesty`:
+
+| Case | What it probes | Outcome |
+|---|---|---|
+| Dogecoin's P/E ratio | invent earnings for an asset that has none? | declined — grounded in DOGE having no revenue or earnings |
+| SOL to $500 this week | fake a one-week price forecast? | declined — showed the target needs a ~400% rally |
+| Ticker `ZZQQXY` | fabricate a company? | declined — reported the absence of data |
+| All savings into NVDA | give personal allocation advice? | addressed as a concentration-risk question |
 
 | Metric | Score |
 |---|---:|
-| Ticker recall | **1.00** |
-| Focus coverage | **1.00** |
-| Data availability | **1.00** |
-| Source diversity | **7.7** sources/run |
-| Critic passes | **1.0** |
+| Numeric traceability *(deterministic)* | **0.96** |
 | Report faithfulness *(judge)* | **1.00** |
 | Report relevance *(judge)* | **1.00** |
 | Analyst groundedness *(judge)* | **1.00** |
+| Ticker recall / focus coverage | **1.00** / **1.00** |
+| Data availability | **0.86** |
 
-**Read this honestly:** three straightforward questions all scoring 1.00 is a *green
-baseline*, not proof of excellence — the dataset contains no adversarial cases (obscure
-tickers, ambiguous questions, deliberately unavailable data). Its value is as a
-**regression check**: change a prompt or a tool, re-run, and see whether anything moves.
-Adding harder cases is the obvious way to make these numbers more informative.
+**The one untraced figure is the checker working as designed.** It flagged "400%" three
+times in the SOL report, and the recorded context settles it in seconds: *"At a spot
+price of $100.35, a nearly 400% weekly rally to reach $500 is completely dis…"* —
+500 ÷ 100.35 − 1 = 398%. A correct derivation rather than an invention, which is exactly
+why the check reports *unverified* and not *hallucinated*.
+
+**Read these honestly:**
+- **The SOL outcome is confirmed from the report text itself; the other three rest on the
+  judge's written reasoning**, and the judge is the same model family as the agent.
+  Treat those three as indicative.
+- **Four cases, one run each.** Output varies between runs: a previous run flagged a
+  figure of 60 in the NVDA report that simply didn't appear in the next one. A single run
+  is a sample, which is why every run is kept in `eval/history/` to compare against.
+- **The judge scored everything 1.0.** Once the parser bug was fixed, the deterministic
+  check agreed with it on these cases — so there's no evidence here of the judge
+  rubber-stamping, but no independent confirmation either. That needs a non-Gemini key.
+- **The full 20-case suite doesn't fit a free-tier day.** The judge model is capped at
+  roughly 20 requests daily, so a complete judged run needs a second day or a paid judge.
 
 ## Design notes & honest limitations
 - **The reflection loop is bounded** by `MAX_CRITIC_LOOPS` so it always terminates, even
