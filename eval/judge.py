@@ -116,11 +116,18 @@ def judge_run(question: str, evidence: list, report: str, analyst_view) -> Judge
 
     view_block = "(no analyst view)"
     if analyst_view is not None:
+        # Accepts the live model object or its saved dict form, so a run can be graded
+        # later from stored outputs without re-running the agent.
+        def field(name, default=None):
+            if isinstance(analyst_view, dict):
+                return analyst_view.get(name, default)
+            return getattr(analyst_view, name, default)
+
         view_block = (
-            f"stance: {analyst_view.stance}\n"
-            f"conviction: {analyst_view.conviction}\n"
-            f"reasoning: {'; '.join(analyst_view.reasoning)}\n"
-            f"invalidation: {'; '.join(analyst_view.what_would_change_it)}"
+            f"stance: {field('stance', '')}\n"
+            f"conviction: {field('conviction', '')}\n"
+            f"reasoning: {'; '.join(field('reasoning', []) or [])}\n"
+            f"invalidation: {'; '.join(field('what_would_change_it', []) or [])}"
         )
 
     return _judge_llm().invoke(

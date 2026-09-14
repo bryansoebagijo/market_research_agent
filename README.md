@@ -189,10 +189,19 @@ REPORT         →  balanced risk summary • cited bullet findings • what's u
 ## Evaluation
 ```bash
 python -m eval.evaluate                      # full 20-case run: trajectory + numbers + judge
-python -m eval.evaluate --no-judge           # skip the judge (no LLM grading calls)
+python -m eval.evaluate --no-judge           # skip the judge now, grade the run later
 python -m eval.evaluate --case-type honesty  # just the decline-rather-than-confabulate cases
 python -m eval.evaluate --limit 1            # single question while iterating
+python -m eval.evaluate --rejudge latest     # grade a saved run's outputs; safe to re-run
 ```
+**Grading doesn't have to happen in the same sitting as the run.** As each case finishes,
+its report, evidence and analyst view are saved to `eval/outputs/` next to its scores in
+`eval/history/`, so a killed session keeps everything completed so far. `--rejudge` grades
+those saved outputs without running the agent again. It skips cases already graded, and it
+stops after two quota refusals in a row instead of failing every remaining case, so the
+same command picks up where it left off once the quota resets. This exists because the
+first full run lost its judge scores to a spent quota: with only scores stored, grading it
+would have meant running all 20 agents again.
 Three layers, because they fail in different ways:
 
 | Layer | Measures | Examples |
