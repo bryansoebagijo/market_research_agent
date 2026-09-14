@@ -270,8 +270,35 @@ why the check reports *unverified* and not *hallucinated*.
 - **The judge scored everything 1.0.** Once the parser bug was fixed, the deterministic
   check agreed with it on these cases — so there's no evidence here of the judge
   rubber-stamping, but no independent confirmation either. That needs a non-Gemini key.
-- **The full 20-case suite doesn't fit a free-tier day.** The judge model is capped at
-  roughly 20 requests daily, so a complete judged run needs a second day or a paid judge.
+- **The judge quota is a shared, hard ceiling.** `gemini-3.6-flash` allows 20 requests a
+  day per project, and every tool on the same key draws from it. A judged run of the full
+  suite needs all 20.
+
+### Measured results: the full suite (deterministic layers)
+The first run of all 20 cases (`eval/history/20260914-225010.json`) completed every agent
+run, but the judge's daily quota was already exhausted when it started. Every judge call
+returned `429`, so this baseline carries **no judge scores**, only the layers that need
+no model:
+
+| Metric | Score |
+|---|---:|
+| Agent runs completed | **20 / 20** |
+| Numeric traceability | **0.987** |
+| Ticker recall | **1.00** |
+| Focus coverage | **1.00** |
+| Data availability | **0.93** |
+| Source diversity | **7.7** sources/run |
+| Critic passes | **1.05** |
+
+Only two cases had any untraced figure, and the stored context resolved both:
+- **SOL to $500:** "nearly 400%" again, the same correct derivation.
+- **All savings into NVDA:** *"operating and net margins above 60%"*. With margins of
+  66.2% and 62.0% that's a true lower bound, not an invention. An earlier run flagged a
+  bare 60 in this same case and couldn't be read, because it stored the number without
+  the text around it.
+
+Judge failures are recorded per case and left out of the averages, so a missing judge
+costs the judge scores and nothing else.
 
 ## Design notes & honest limitations
 - **The reflection loop is bounded** by `MAX_CRITIC_LOOPS` so it always terminates, even
