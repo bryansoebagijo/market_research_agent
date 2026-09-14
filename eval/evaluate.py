@@ -142,17 +142,32 @@ def save_run(rows: list[dict], judged: bool) -> Path:
     return path
 
 
-def previous_run(exclude: Path) -> dict | None:
-    """The most recent earlier run, for a regression comparison."""
-    if not HISTORY_DIR.exists():
-        return None
-    runs = sorted(p for p in HISTORY_DIR.glob("*.json") if p != exclude)
-    if not runs:
-        return None
+def _load(path: Path) -> dict | None:
     try:
-        return json.loads(runs[-1].read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def previous_run(exclude: Path) -> dict | None:
+    """The most recent earlier run over the SAME cases as the run saved at `exclude`.
+
+    Averages from different case sets can't be compared: a 20-case run measured against a
+    4-case honesty run would print deltas that track the change in dataset, not in the
+    agent. So only a run with exactly the same questions counts as a baseline — which also
+    lets a filtered run (--case-type honesty) compare against the last run filtered alike.
+    """
+    if not HISTORY_DIR.exists():
+        return None
+    current = _load(exclude) or {}
+    questions = {r.get("question") for r in current.get("rows", [])}
+    for path in sorted(HISTORY_DIR.glob("*.json"), reverse=True):  # names sort by time
+        if path == exclude:
+            continue
+        run = _load(path)
+        if run and {r.get("question") for r in run.get("rows", [])} == questions:
+            return run
+    return None
 
 
 def _delta(now, before) -> str:
@@ -178,7 +193,10 @@ def print_report(rows: list[dict], judged: bool, prev: dict | None = None) -> No
     print(f"Questions evaluated : {len(rows)}")
     if prev:
         print(f"Compared against    : {prev.get('timestamp', 'previous run')} "
-              f"({prev.get('cases', '?')} cases)")
+              f"(the same {prev.get('cases', '?')} cases)")
+    else:
+        print("Compared against    : nothing yet — no earlier run covered exactly these "
+              "cases, so deltas start from the next one")
     print("\n--- Trajectory (did it behave correctly?) ---")
     print(f"Ticker recall       : {_avg(rows, 'ticker_recall')}   (found the right tickers){d('ticker_recall')}")
     print(f"Focus coverage      : {_avg(rows, 'focus_coverage')}   (planned the expected angles){d('focus_coverage')}")
@@ -267,15 +285,39 @@ def main() -> None:
         dataset = dataset[: args.limit]
 
     judge = not args.no_judge
-    rows = []
+    rows, skipped = [], []
+    consecutive_failures = 0
     for i, item in enumerate(dataset, start=1):
         print(f"[{i}/{len(dataset)}] running: {item['question'][:60]} …")
-        rows.append(evaluate_one(item, judge))
+        try:
+            rows.append(evaluate_one(item, judge))
+            consecutive_failures = 0
+        except Exception as exc:  # noqa: BLE001 - one failed case shouldn't lose the rest
+            # Results are only saved at the end, so an unhandled error here used to throw
+            # away every finished case. A single failure now skips just that case; two in a
+            # row almost always means the daily quota ran out, and carrying on would only
+            # fail every remaining case the same way.
+            skipped.append((item["question"], f"{type(exc).__name__}: {str(exc)[:100]}"))
+            print(f"    ! failed: {skipped[-1][1]}")
+            consecutive_failures += 1
+            if consecutive_failures >= 2:
+                print("    ! two failures in a row — most likely quota; stopping early")
+                skipped += [(d["question"], "not run") for d in dataset[i:]]
+                break
         if judge and i < len(dataset):
             time.sleep(settings.judge_delay_seconds)  # pace against free-tier limits
 
+    if not rows:
+        sys.exit("No cases completed — nothing to save.")
+
     path = save_run(rows, judged=judge)
     print_report(rows, judged=judge, prev=previous_run(exclude=path))
+    if skipped:
+        # A partial run covers fewer questions, so it can never become the baseline for
+        # a full one.
+        print(f"\nIncomplete run: {len(skipped)} case(s) not scored")
+        for question, reason in skipped:
+            print(f"  - {question[:60]}  ({reason})")
     print(f"\nRun saved to {path.relative_to(ROOT_DIR)} — the next run compares against it.")
 
 
