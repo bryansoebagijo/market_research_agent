@@ -71,6 +71,15 @@ def judge_provider() -> tuple[str, bool]:
     return settings.judge_model, False
 
 
+# LangChain retries a failed call six times by default, which is the wrong place to be
+# resilient when the judge runs on a metered free tier. A full run once spent its entire
+# 20-request daily quota on about seven visible calls: three of them hit a transient 503
+# and each retried its way through roughly six requests, invisibly. --rejudge is the
+# retry path that actually helps, so a failure here should cost one request and be picked
+# up later rather than burning six now.
+JUDGE_MAX_RETRIES = 1
+
+
 @lru_cache(maxsize=1)
 def _judge_llm():
     """The judge model, preferring a different PROVIDER to the agent's.
@@ -86,6 +95,7 @@ def _judge_llm():
             model=settings.anthropic_judge_model,
             api_key=settings.anthropic_api_key,
             temperature=0.0,
+            max_retries=JUDGE_MAX_RETRIES,
         ).with_structured_output(JudgeScores)
 
     if settings.openai_api_key:
@@ -95,6 +105,7 @@ def _judge_llm():
             model=settings.openai_judge_model,
             api_key=settings.openai_api_key,
             temperature=0.0,
+            max_retries=JUDGE_MAX_RETRIES,
         ).with_structured_output(JudgeScores)
 
     if not settings.gemini_api_key:
@@ -105,6 +116,7 @@ def _judge_llm():
         model=settings.judge_model,
         google_api_key=settings.gemini_api_key,
         temperature=0.0,
+        max_retries=JUDGE_MAX_RETRIES,
     ).with_structured_output(JudgeScores)
 
 

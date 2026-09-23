@@ -115,7 +115,10 @@ def _judge_into(row: dict, question: str, evidence: list, report: str, view) -> 
     try:
         scores = judge_run(question, evidence, report, view)
     except Exception as exc:  # noqa: BLE001 - one failed grade shouldn't sink the run
-        row["judge_error"] = str(exc)[:300]
+        # Long enough to keep the provider's own quota details. Truncating at 300 cut the
+        # message off just before the quota id and limit — the one part that tells a
+        # daily cap apart from a per-minute one.
+        row["judge_error"] = str(exc)[:900]
         if _is_quota_error(exc):
             row["judge_quota_exhausted"] = True
         return
