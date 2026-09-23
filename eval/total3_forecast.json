@@ -1,6 +1,78 @@
 {
   "built_at": "2026-09-23T14:59:21+00:00",
+  "primary_horizon": 3,
   "horizons": {
+    "3": {
+      "horizon_days": 3,
+      "predictions": 182,
+      "independent_windows": 60.7,
+      "share_up": 0.5439560439560439,
+      "majority_class_rate": 0.5439560439560439,
+      "naive_random_walk": {
+        "mae": 0.01568428707956965,
+        "rmse": 0.023272907341306555,
+        "directional_accuracy": null
+      },
+      "momentum_persistence": {
+        "mae": 0.02307873314920145,
+        "rmse": 0.03124624280354955,
+        "directional_accuracy": 0.41208791208791207,
+        "skill_vs_naive": -0.8025790759900093
+      },
+      "ridge_model": {
+        "mae": 0.01722692614501486,
+        "rmse": 0.026129010493310952,
+        "directional_accuracy": 0.5604395604395604,
+        "skill_vs_naive": -0.26050521195894216
+      },
+      "direction_model": {
+        "brier": 0.2606350840929047,
+        "base_rate_brier": 0.25395437841334073,
+        "brier_skill": -0.02630671588063871,
+        "accuracy": 0.5824175824175825,
+        "mean_probability_up": 0.4821086655196876,
+        "calibration": [
+          {
+            "range": "0%-25%",
+            "predicted": 0.17810784843374156,
+            "actual": 0.7058823529411765,
+            "n": 17
+          },
+          {
+            "range": "25%-50%",
+            "predicted": 0.4005277031078386,
+            "actual": 0.4,
+            "n": 70
+          },
+          {
+            "range": "50%-75%",
+            "predicted": 0.5903077471421622,
+            "actual": 0.6304347826086957,
+            "n": 92
+          },
+          {
+            "range": "75%-100%",
+            "predicted": 0.7902305821939676,
+            "actual": 0.3333333333333333,
+            "n": 3
+          }
+        ],
+        "beats_base_rate": false,
+        "verdict": "No. Its Brier score (0.2606) is no better than quoting the base rate (0.2540), skill -0.026."
+      },
+      "features": [
+        "momentum_3",
+        "momentum_7",
+        "momentum_14",
+        "momentum_30",
+        "volatility_20",
+        "vs_ma50",
+        "vs_ma100",
+        "rsi_14"
+      ],
+      "beats_baseline": false,
+      "verdict": "No. Its squared error is worse than predicting no change at all (skill -0.261)."
+    },
     "7": {
       "horizon_days": 7,
       "predictions": 178,
@@ -19,12 +91,42 @@
         "skill_vs_naive": -1.1701935484297423
       },
       "ridge_model": {
-        "mae": 0.02788413491929659,
-        "rmse": 0.04033858861446308,
-        "directional_accuracy": 0.5337078651685393,
-        "skill_vs_naive": -0.22246454520436898
+        "mae": 0.028029662366171527,
+        "rmse": 0.040459649839769816,
+        "directional_accuracy": 0.5112359550561798,
+        "skill_vs_naive": -0.2298130982301998
+      },
+      "direction_model": {
+        "brier": 0.27058259835095133,
+        "base_rate_brier": 0.25852215665122596,
+        "brier_skill": -0.04665148185343426,
+        "accuracy": 0.5730337078651685,
+        "mean_probability_up": 0.37983948635110737,
+        "calibration": [
+          {
+            "range": "0%-25%",
+            "predicted": 0.1296944762579849,
+            "actual": 0.46875,
+            "n": 32
+          },
+          {
+            "range": "25%-50%",
+            "predicted": 0.3886579518855893,
+            "actual": 0.45871559633027525,
+            "n": 109
+          },
+          {
+            "range": "50%-75%",
+            "predicted": 0.5702023939111448,
+            "actual": 0.7027027027027027,
+            "n": 37
+          }
+        ],
+        "beats_base_rate": false,
+        "verdict": "No. Its Brier score (0.2706) is no better than quoting the base rate (0.2585), skill -0.047."
       },
       "features": [
+        "momentum_3",
         "momentum_7",
         "momentum_14",
         "momentum_30",
@@ -34,7 +136,7 @@
         "rsi_14"
       ],
       "beats_baseline": false,
-      "verdict": "No. The model's squared error is worse than the random walk (skill -0.222)."
+      "verdict": "No. Its squared error is worse than predicting no change at all (skill -0.230)."
     },
     "30": {
       "horizon_days": 30,
@@ -54,12 +156,48 @@
         "skill_vs_naive": -0.5964646536079496
       },
       "ridge_model": {
-        "mae": 0.09048321395895446,
-        "rmse": 0.11822569061885768,
+        "mae": 0.09065811115572944,
+        "rmse": 0.1180582067727235,
         "directional_accuracy": 0.45806451612903226,
-        "skill_vs_naive": -1.3297619900724844
+        "skill_vs_naive": -1.3231657737857385
+      },
+      "direction_model": {
+        "brier": 0.3885500625785149,
+        "base_rate_brier": 0.3169234949121169,
+        "brier_skill": -0.2260058620338643,
+        "accuracy": 0.4129032258064516,
+        "mean_probability_up": 0.301497012518392,
+        "calibration": [
+          {
+            "range": "0%-25%",
+            "predicted": 0.09856069191764279,
+            "actual": 0.6301369863013698,
+            "n": 73
+          },
+          {
+            "range": "25%-50%",
+            "predicted": 0.40130556739652024,
+            "actual": 0.5652173913043478,
+            "n": 46
+          },
+          {
+            "range": "50%-75%",
+            "predicted": 0.5807327324930271,
+            "actual": 0.45714285714285713,
+            "n": 35
+          },
+          {
+            "range": "75%-100%",
+            "predicted": 0.7514046928669548,
+            "actual": 1.0,
+            "n": 1
+          }
+        ],
+        "beats_base_rate": false,
+        "verdict": "No. Its Brier score (0.3886) is no better than quoting the base rate (0.3169), skill -0.226."
       },
       "features": [
+        "momentum_3",
         "momentum_7",
         "momentum_14",
         "momentum_30",
@@ -69,7 +207,7 @@
         "rsi_14"
       ],
       "beats_baseline": false,
-      "verdict": "No. The model's squared error is worse than the random walk (skill -1.330)."
+      "verdict": "No. Its squared error is worse than predicting no change at all (skill -1.323)."
     }
   }
 }

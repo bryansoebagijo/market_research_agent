@@ -400,14 +400,19 @@ def render_total3() -> None:
     c3.metric("BTC dominance", f"{live.get('btc_dominance', 0):.1f}%",
               help="Rising dominance mechanically squeezes everything in TOTAL3.")
 
-    cone = t3.volatility_cone(levels, horizon_days=30)
+    # The panel forecasts whatever horizon the evaluation declared primary, so the two
+    # can't drift apart.
+    forecast = _forecast_verdict()
+    horizon = int((forecast or {}).get("primary_horizon", 3))
+    cone = t3.volatility_cone(levels, horizon_days=horizon)
 
     # Volatility always uses the full series; only the drawn history is shortened. A
     # 30-day cone against a year of history renders as a sliver, which hides the forward
     # range this panel exists to show.
-    window = st.radio("History shown", ["3 months", "1 year"], horizontal=True,
+    window = st.radio("History shown", ["1 month", "3 months", "1 year"], horizontal=True,
                       label_visibility="collapsed", key="total3_window")
-    shown = series[-90:] if window == "3 months" else series
+    cutoff = {"1 month": 30, "3 months": 90}.get(window)
+    shown = series[-cutoff:] if cutoff else series
     history = pd.DataFrame({
         "date": pd.to_datetime([p["date"] for p in shown]),
         "TOTAL3": [p["total3"] for p in shown],
@@ -442,23 +447,48 @@ def render_total3() -> None:
         "purpose** — it is the random walk, which beat every model tested below."
     )
 
-    forecast = _forecast_verdict()
-    if forecast:
-        st.markdown("**Does a model beat simply assuming no change?**")
-        for horizon, result in sorted(forecast.get("horizons", {}).items(), key=lambda kv: int(kv[0])):
-            model = result["ridge_model"]
-            skill = model.get("skill_vs_naive")
-            icon = "🟢" if result.get("beats_baseline") else "🔴"
-            st.markdown(
-                f"{icon} **{horizon}-day:** ridge skill {skill:+.3f} vs the random walk, "
-                f"direction {model.get('directional_accuracy', 0):.1%} against a "
-                f"{result['majority_class_rate']:.1%} majority, on only "
-                f"{result['independent_windows']} independent windows."
-            )
+    # A percentage for each direction, shown with the base rate beside it: a probability
+    # only carries information insofar as it differs from how often the market rose anyway.
+    from agent import total3_model as t3_model
+
+    prediction = t3_model.predict_now(levels, horizon_days=horizon)
+    primary = (forecast or {}).get("horizons", {}).get(str(horizon)) or {}
+    direction = primary.get("direction_model") or {}
+
+    if prediction.get("available"):
+        st.markdown(f"**Direction over the next {horizon} days**")
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Model says up", f"{prediction['probability_up']:.0%}")
+        d2.metric("Model says down", f"{prediction['probability_down']:.0%}")
+        d3.metric("Base rate up", f"{prediction['base_rate_up']:.0%}",
+                  help="How often TOTAL3 actually rose over this horizon in the past year. "
+                       "The model has to beat this to be worth anything.")
+
+        if direction:
+            st.markdown(("🟢 " if direction.get("beats_base_rate") else "🔴 ")
+                        + direction.get("verdict", ""))
+            # Bins under 5 cases are too small to read anything into.
+            bins = [b for b in (direction.get("calibration") or []) if b.get("n", 0) >= 5]
+            worst = max(bins, key=lambda b: abs(b["predicted"] - b["actual"]), default=None)
+            if worst:
+                st.caption(
+                    f"Calibration: when it said {worst['predicted']:.0%}, TOTAL3 rose "
+                    f"{worst['actual']:.0%} of the time (n={worst['n']}). Accuracy alone "
+                    f"({direction.get('accuracy', 0):.1%}) would have hidden that, which is "
+                    "why the probability is graded on Brier score against the base rate."
+                )
+
+    if primary:
+        skill = (primary.get("ridge_model") or {}).get("skill_vs_naive")
+        st.markdown(("🟢 " if primary.get("beats_baseline") else "🔴 ")
+                    + f"**Magnitude:** {primary.get('verdict', '')}")
         st.caption(
-            "A negative skill score means the model's squared error is worse than "
-            "predicting no change at all. That's why this panel shows a range instead of "
-            "a line: the honest forecast is the one the measurement supports."
+            f"Measured walk-forward over {primary.get('independent_windows')} independent "
+            f"windows. Skill {skill:+.3f} — negative means its squared error is worse than "
+            "assuming no change, which is why the cone's centre is flat."
+            if isinstance(skill, (int, float)) else
+            f"Measured walk-forward over {primary.get('independent_windows')} independent "
+            "windows."
         )
 
     st.caption(
