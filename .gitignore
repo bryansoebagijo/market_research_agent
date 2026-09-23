@@ -33,3 +33,6 @@ data/theses.json
 
 # Eval outputs kept so the judge can grade a run later (working data, not results)
 eval/outputs/
+
+# Rebuilt TOTAL3 series (derived data, ~11 minutes to regenerate)
+data/total3_series.json

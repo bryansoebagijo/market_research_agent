@@ -100,6 +100,35 @@ only when the whole basket moves rather than one coin.
 
 ![Top projects ranked by revenue and TVL, and trending narratives with the tickers in each](docs/screenshots/crypto-projects.png)
 
+### TOTAL3 — a model that didn't earn its forecast
+The altcoin market cap (everything except BTC and ETH) with a 30-day volatility cone.
+The cone's centre line is **flat**, and that's a measured decision rather than a hedge.
+
+CoinGecko's market-cap history is a paid endpoint, so the series is rebuilt by summing
+the 50 largest non-BTC/ETH coins, **chained** across the coins present on both of any two
+days so constituents entering or leaving can't fake a jump, then calibrated to the live
+level. It covers 95.5% of TOTAL3, and 34.9% of it is stablecoins, which damps its
+volatility.
+
+A ridge model was then measured walk-forward against the baseline every price forecast
+has to clear — the random walk, which predicts no change at all:
+
+| Horizon | Ridge skill vs random walk | Direction | Independent windows |
+|---|---:|---:|---:|
+| 7-day | **−0.222** | 53.4% vs 51.1% majority | 25.4 |
+| 30-day | **−1.330** | 45.8% vs 57.4% majority | 5.2 |
+
+Negative skill means the model's squared error is *worse* than assuming nothing changes.
+Momentum persistence did worse still (−1.17 and −0.60), so over these windows TOTAL3
+mean-reverts rather than trends, and at 30 days the model's direction calls land below
+simply always guessing "up".
+
+So the panel shows a range and the numbers behind that choice instead of a predicted
+line. Note what it declines to conclude even in its own favour: one year of history is a
+single regime, and 155 overlapping 30-day predictions carry only about **5 independent
+observations**, so even a positive result would need data across several regimes before
+anyone should believe it. Run it with `python -m eval.total3_forecast`.
+
 ### US Stocks — the quarterly trend, not one quarter
 Twelve quarters of revenue, profit and margins from the income statements. The trend is
 the point: NVDA's revenue more than doubled year-on-year **while** margins expanded,

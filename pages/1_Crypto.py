@@ -20,6 +20,7 @@ from ui_common import (
     render_protocol_history,
     render_signal,
     render_token_multiples,
+    render_total3,
     render_watchlist_editor,
     render_watchlist_revenue,
     run_agent_analysis,
@@ -67,6 +68,11 @@ with right:
             st.info("Open-interest data unavailable right now.")
     except Exception as exc:  # noqa: BLE001
         st.warning(f"Couldn't load open interest: {exc}")
+
+st.divider()
+
+# ---------------- TOTAL3: the market-wide gauge ----------------
+render_total3()
 
 st.divider()
 

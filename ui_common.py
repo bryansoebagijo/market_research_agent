@@ -343,6 +343,133 @@ def render_token_multiples(symbol: str) -> None:
     )
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_total3():
+    """The stored TOTAL3 series, or None — never builds, since building takes minutes."""
+    from agent.total3 import read_cache
+
+    return read_cache()
+
+
+def _forecast_verdict() -> dict | None:
+    """The measured answer to 'does a model beat the random walk?', if it's been run."""
+    import json
+
+    from config import ROOT_DIR
+
+    path = ROOT_DIR / "eval" / "total3_forecast.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def render_total3() -> None:
+    """TOTAL3 with a volatility cone — a range, not a prediction."""
+    from agent import total3 as t3
+
+    st.subheader("TOTAL3 — crypto market cap excluding BTC and ETH")
+    data = cached_total3()
+
+    if data is None:
+        st.caption(
+            "CoinGecko's market-cap history is a paid endpoint, so this series is rebuilt "
+            "by summing the 50 largest non-BTC/ETH coins. The free tier sustains about "
+            "five requests a minute, so building it takes roughly 11 minutes — then it's "
+            "cached for a day."
+        )
+        if st.button("Build the TOTAL3 series (~11 min)", key="build_total3"):
+            status = st.status("Fetching market-cap history…", expanded=True)
+            t3.load_series(progress=lambda i, n, sym:
+                           status.update(label=f"Fetching {i}/{n} — {sym}"))
+            status.update(label="Series built", state="complete")
+            cached_total3.clear()
+            st.rerun()
+        return
+
+    series = data["series"]
+    levels = [p["total3"] for p in series]
+    live = data.get("live") or {}
+    change = (levels[-1] / levels[0] - 1) * 100 if levels[0] else None
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("TOTAL3 now", money(live.get("total3") or levels[-1]))
+    c2.metric("Past year", f"{change:+.1f}%" if change is not None else "—")
+    c3.metric("BTC dominance", f"{live.get('btc_dominance', 0):.1f}%",
+              help="Rising dominance mechanically squeezes everything in TOTAL3.")
+
+    cone = t3.volatility_cone(levels, horizon_days=30)
+
+    # Volatility always uses the full series; only the drawn history is shortened. A
+    # 30-day cone against a year of history renders as a sliver, which hides the forward
+    # range this panel exists to show.
+    window = st.radio("History shown", ["3 months", "1 year"], horizontal=True,
+                      label_visibility="collapsed", key="total3_window")
+    shown = series[-90:] if window == "3 months" else series
+    history = pd.DataFrame({
+        "date": pd.to_datetime([p["date"] for p in shown]),
+        "TOTAL3": [p["total3"] for p in shown],
+    })
+    last_date = history["date"].iloc[-1]
+    projection = pd.DataFrame([
+        {"date": last_date + pd.Timedelta(days=b["day"]), **b} for b in cone["bands"]
+    ])
+
+    base = alt.Chart(projection)
+    chart = alt.layer(
+        base.mark_area(opacity=0.12, color="#4c78a8").encode(
+            x=alt.X("date:T", title=None), y=alt.Y("lo2:Q", title=None), y2="hi2:Q"),
+        base.mark_area(opacity=0.22, color="#4c78a8").encode(
+            x="date:T", y="lo1:Q", y2="hi1:Q"),
+        base.mark_line(strokeDash=[4, 4], color="#4c78a8").encode(x="date:T", y="mid:Q"),
+        alt.Chart(history).mark_line(color="#e45756").encode(
+            x=alt.X("date:T", title=None),
+            # zero=False: the movement sits between $0.7T and $1T, so a zero-based axis
+            # squeezes all of it into the top third of the chart.
+            y=alt.Y("TOTAL3:Q", title="TOTAL3", axis=alt.Axis(format="$~s"),
+                    scale=alt.Scale(zero=False)),
+            tooltip=[alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+                     alt.Tooltip("TOTAL3:Q", title="TOTAL3", format="$,.0f")]),
+    ).properties(height=320)
+    st.altair_chart(chart, use_container_width=True)
+
+    st.caption(
+        f"Shaded: where TOTAL3 sits at 1σ and 2σ over the next {cone['horizon_days']} days "
+        f"if it keeps the volatility of the last {cone['window_days']} days "
+        f"({cone['annualised_vol'] * 100:.0f}% annualised). **The dashed centre is flat on "
+        "purpose** — it is the random walk, which beat every model tested below."
+    )
+
+    forecast = _forecast_verdict()
+    if forecast:
+        st.markdown("**Does a model beat simply assuming no change?**")
+        for horizon, result in sorted(forecast.get("horizons", {}).items(), key=lambda kv: int(kv[0])):
+            model = result["ridge_model"]
+            skill = model.get("skill_vs_naive")
+            icon = "🟢" if result.get("beats_baseline") else "🔴"
+            st.markdown(
+                f"{icon} **{horizon}-day:** ridge skill {skill:+.3f} vs the random walk, "
+                f"direction {model.get('directional_accuracy', 0):.1%} against a "
+                f"{result['majority_class_rate']:.1%} majority, on only "
+                f"{result['independent_windows']} independent windows."
+            )
+        st.caption(
+            "A negative skill score means the model's squared error is worse than "
+            "predicting no change at all. That's why this panel shows a range instead of "
+            "a line: the honest forecast is the one the measurement supports."
+        )
+
+    st.caption(
+        f"Reconstructed from {data['n_coins_used']} coins covering "
+        f"{data['coverage_pct']:.0f}% of TOTAL3, chained so constituents entering or "
+        f"leaving don't fake a jump, and calibrated to the live level. "
+        f"{data['stable_share_pct']:.0f}% of it is stablecoins, which damps its "
+        "volatility. One year of history — a single market regime."
+    )
+
+
 TONE_ICONS = {"green": "🟢", "orange": "🟠", "red": "🔴", "gray": "⚪"}
 
 

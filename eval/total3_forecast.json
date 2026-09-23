@@ -1,0 +1,75 @@
+{
+  "built_at": "2026-09-23T14:59:21+00:00",
+  "horizons": {
+    "7": {
+      "horizon_days": 7,
+      "predictions": 178,
+      "independent_windows": 25.4,
+      "share_up": 0.5112359550561798,
+      "majority_class_rate": 0.5112359550561798,
+      "naive_random_walk": {
+        "mae": 0.02433212127412442,
+        "rmse": 0.03648400971623795,
+        "directional_accuracy": null
+      },
+      "momentum_persistence": {
+        "mae": 0.039416777137194735,
+        "rmse": 0.053746699089455625,
+        "directional_accuracy": 0.38202247191011235,
+        "skill_vs_naive": -1.1701935484297423
+      },
+      "ridge_model": {
+        "mae": 0.02788413491929659,
+        "rmse": 0.04033858861446308,
+        "directional_accuracy": 0.5337078651685393,
+        "skill_vs_naive": -0.22246454520436898
+      },
+      "features": [
+        "momentum_7",
+        "momentum_14",
+        "momentum_30",
+        "volatility_20",
+        "vs_ma50",
+        "vs_ma100",
+        "rsi_14"
+      ],
+      "beats_baseline": false,
+      "verdict": "No. The model's squared error is worse than the random walk (skill -0.222)."
+    },
+    "30": {
+      "horizon_days": 30,
+      "predictions": 155,
+      "independent_windows": 5.2,
+      "share_up": 0.5741935483870968,
+      "majority_class_rate": 0.5741935483870968,
+      "naive_random_walk": {
+        "mae": 0.05839701022851695,
+        "rmse": 0.0774561813085143,
+        "directional_accuracy": null
+      },
+      "momentum_persistence": {
+        "mae": 0.08045533374062312,
+        "rmse": 0.09786687829541567,
+        "directional_accuracy": 0.432258064516129,
+        "skill_vs_naive": -0.5964646536079496
+      },
+      "ridge_model": {
+        "mae": 0.09048321395895446,
+        "rmse": 0.11822569061885768,
+        "directional_accuracy": 0.45806451612903226,
+        "skill_vs_naive": -1.3297619900724844
+      },
+      "features": [
+        "momentum_7",
+        "momentum_14",
+        "momentum_30",
+        "volatility_20",
+        "vs_ma50",
+        "vs_ma100",
+        "rsi_14"
+      ],
+      "beats_baseline": false,
+      "verdict": "No. The model's squared error is worse than the random walk (skill -1.330)."
+    }
+  }
+}
