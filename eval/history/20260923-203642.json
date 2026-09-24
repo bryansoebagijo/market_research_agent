@@ -1,7 +1,7 @@
 {
   "timestamp": "2026-09-23 20:36:42",
   "agent_model": "gemini-3.5-flash-lite",
-  "judge_model": "gemini-3.6-flash",
+  "judge_model": "gemini-3.5-flash",
   "judge_independent": false,
   "cases": 20,
   "summary": {
@@ -11,7 +11,7 @@
     "source_diversity": 7.3,
     "critic_passes": 1.2,
     "numeric_traceability": 0.983,
-    "report_faithfulness": 0.925,
+    "report_faithfulness": 0.97,
     "report_relevance": 1.0,
     "analyst_groundedness": 1.0
   },
@@ -50,7 +50,8 @@
       "claims": 17,
       "unverified_count": 0,
       "unverified": [],
-      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+      "judge_error": "Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\\nPlease retry in 15.088492217s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tie",
+      "judge_quota_exhausted": true
     },
     {
       "question": "What are the key risks and catalysts for BTC this week?",
@@ -90,7 +91,8 @@
       "claims": 25,
       "unverified_count": 0,
       "unverified": [],
-      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+      "judge_error": "Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\\nPlease retry in 1.770016311s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier",
+      "judge_quota_exhausted": true
     },
     {
       "question": "What revenue and earnings does Dogecoin generate, and what is its P/E ratio?",
@@ -135,8 +137,7 @@
       "claims": 22,
       "unverified_count": 0,
       "unverified": [],
-      "judge_error": "Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To mon",
-      "judge_quota_exhausted": true
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "Will SOL reach $500 by the end of this week?",
@@ -171,8 +172,7 @@
           "context": "Reaching $500 in one week requires a 328% gain from the current price of $116.69, whic\u2026"
         }
       ],
-      "judge_error": "Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To mon",
-      "judge_quota_exhausted": true
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "Give me a detailed fundamental analysis of the ticker ZZQQXY.",
@@ -190,7 +190,7 @@
       "claims": 0,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "Lido's TVL is rising while its revenue falls. What does that tell me about the protocol?",
@@ -208,7 +208,11 @@
       "claims": 11,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "report_faithfulness": 1.0,
+      "report_relevance": 1.0,
+      "analyst_groundedness": 1.0,
+      "judge_reason": "The report and analyst view are highly faithful to the gathered evidence, accurately highlighting the fee compression indicated by rising TVL and falling revenue while acknowledging missing data.",
+      "judge_model": "gemini-3.5-flash"
     },
     {
       "question": "Has MSFT's operating margin expanded or compressed over the last year, and does that justify its multiple?",
@@ -226,7 +230,7 @@
       "claims": 18,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "What is driving the price of ETH over the past month?",
@@ -244,7 +248,7 @@
       "claims": 12,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "Between UNI and AAVE, which protocol token looks better value on revenue?",
@@ -262,7 +266,7 @@
       "claims": 19,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "Is TSLA's current RSI signalling that it is overbought?",
@@ -280,7 +284,7 @@
       "claims": 17,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "How does the current macro backdrop affect US equities?",
@@ -298,7 +302,7 @@
       "claims": 8,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "Should I put my entire savings into NVDA?",
@@ -316,7 +320,7 @@
       "claims": 22,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "What happened to AMZN's latest quarter versus analyst estimates?",
@@ -334,7 +338,11 @@
       "claims": 17,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "report_faithfulness": 1.0,
+      "report_relevance": 1.0,
+      "analyst_groundedness": 1.0,
+      "judge_reason": "The report and analyst stance are fully faithful to the gathered evidence, accurately reporting the EPS beat, revenue figures, and technical signals while noting missing operational metrics.",
+      "judge_model": "gemini-3.6-flash"
     },
     {
       "question": "Is PENDLE's revenue growth sustainable given its TVL trend?",
@@ -352,7 +360,11 @@
       "claims": 16,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "report_faithfulness": 1.0,
+      "report_relevance": 1.0,
+      "analyst_groundedness": 1.0,
+      "judge_reason": "The report and analyst view accurately reflect all provided evidence without hallucination, directly answering the question regarding revenue sustainability relative to TVL trends.",
+      "judge_model": "gemini-3.6-flash"
     },
     {
       "question": "Compare BTC and GOOGL as a long-term hold.",
@@ -370,7 +382,7 @@
       "claims": 22,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "What are the biggest bearish risks to the crypto market right now?",
@@ -388,7 +400,7 @@
       "claims": 0,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     },
     {
       "question": "Given NVDA's quarterly trend, what would have to happen for the bull case to break?",
@@ -406,7 +418,7 @@
       "claims": 24,
       "unverified_count": 0,
       "unverified": [],
-      "judge_skipped": "quota spent earlier in this run"
+      "judge_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
     }
   ]
 }
