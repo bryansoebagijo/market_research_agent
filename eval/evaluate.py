@@ -81,16 +81,47 @@ def _is_quota_error(error) -> bool:
     return any(m in text for m in QUOTA_MARKERS) or re.search(r"\b429\b", text) is not None
 
 
+def _retry_after(error) -> float | None:
+    """How many seconds the provider asked us to wait, when it said."""
+    text = str(error)
+    match = (re.search(r"retry in ([\d.]+)s", text)
+             or re.search(r"'retryDelay':\s*'(\d+)s'", text))
+    return float(match.group(1)) if match else None
+
+
+def quota_scope(error) -> str | None:
+    """Whether a refusal spends the day's allowance or only this minute's.
+
+    The two need opposite responses and look identical unless you read the limit and the
+    retry delay. The judge model allows 5 requests a minute and 20 a day on the free tier,
+    and a burst of retries trips the per-minute one in seconds. Waiting under a minute
+    clears that; nothing clears a spent day.
+    """
+    if not _is_quota_error(error):
+        return None
+    text = str(error)
+    if "PerDay" in text:
+        return "daily"
+    delay = _retry_after(error)
+    if delay is not None:
+        # A wait measured in seconds is a per-minute window; a day's cap won't clear soon.
+        return "rate" if delay <= 300 else "daily"
+    limit = re.search(r"limit:\s*(\d+)", text)
+    if limit:
+        return "rate" if int(limit.group(1)) <= 10 else "daily"
+    return "daily"
+
+
 def _is_judged(row: dict) -> bool:
     return all(key in row for key in JUDGE_SCORE_KEYS)
 
 
 class JudgeGate:
-    """Stops calling the judge once its quota is clearly gone.
+    """Stops calling the judge once the DAY's allowance is gone.
 
-    Judge failures are caught per case, so a spent quota used to fail quietly on every
-    remaining case: the first full run made 20 calls to a judge that had rejected the very
-    first one. Two quota errors in a row close the gate; a success resets the count.
+    Only a daily refusal closes this. A per-minute refusal is transient, and treating the
+    two alike abandoned an entire pass over a limit that clears in under a minute — which
+    is exactly what happened the first time --rejudge ran.
     """
 
     def __init__(self, limit: int = 2):
@@ -110,17 +141,21 @@ class JudgeGate:
 
 def _judge_into(row: dict, question: str, evidence: list, report: str, view) -> None:
     """Grade one case into its row, replacing any judge failure recorded there before."""
-    for key in JUDGE_STATE_KEYS:
+    for key in (*JUDGE_STATE_KEYS, "judge_rate_limited", "judge_retry_after"):
         row.pop(key, None)
     try:
         scores = judge_run(question, evidence, report, view)
     except Exception as exc:  # noqa: BLE001 - one failed grade shouldn't sink the run
         # Long enough to keep the provider's own quota details. Truncating at 300 cut the
-        # message off just before the quota id and limit — the one part that tells a
+        # message off just before the limit and retry delay — the one part that tells a
         # daily cap apart from a per-minute one.
         row["judge_error"] = str(exc)[:900]
-        if _is_quota_error(exc):
+        scope = quota_scope(exc)
+        if scope == "daily":
             row["judge_quota_exhausted"] = True
+        elif scope == "rate":
+            row["judge_rate_limited"] = True
+            row["judge_retry_after"] = _retry_after(exc)
         return
     row.update({
         "report_faithfulness": scores.report_faithfulness,
@@ -360,24 +395,59 @@ def print_report(rows: list[dict], judged: bool, prev: dict | None = None,
     print(line)
 
 
+def _is_transient_error(error) -> bool:
+    """True for a provider saying "busy, try again" rather than "no".
+
+    Gemini's free tier answers 503 UNAVAILABLE — "this model is currently experiencing
+    high demand" — under load, and that was 13 of 15 judge failures on one pass and 15 of
+    16 on the next. Unlike a quota refusal it clears on its own, so it's worth waiting out
+    rather than abandoning the case.
+    """
+    text = str(error)
+    return any(marker in text for marker in
+               ("503", "UNAVAILABLE", "high demand", "overloaded"))
+
+
 def rejudge_rows(rows: list[dict], outputs: list[dict], *, delay: float = 0.0,
-                 on_progress=None) -> dict:
+                 on_progress=None, sleeper=time.sleep, rate_retries: int = 3,
+                 transient_wait: float = 20.0) -> dict:
     """Grade every row that has no judge scores yet, from the outputs stored for it.
 
-    Resumable by design: rows already scored are left alone, and a spent quota stops the
-    pass rather than failing every remaining case, so running it again after the reset
-    carries on from where this pass stopped.
+    Resumable by design, and it separates the two ways a provider says no. A spent day
+    stops the pass, so running it again after the reset carries on from here. A per-minute
+    limit is waited out and the same row retried — the first version treated both as fatal
+    and graded nothing at all over a refusal that clears in under a minute.
+
+    `sleeper` is injected so the waiting can be tested without actually waiting.
     """
     by_question = {o["question"]: o for o in outputs}
     gate = JudgeGate()
-    graded = missing_output = 0
+    graded = missing_output = rate_limit_waits = transient_waits = 0
     pending = [r for r in rows if not _is_judged(r)]
+
     for n, row in enumerate(pending, start=1):
         out = by_question.get(row["question"])
         if out is None:
             missing_output += 1
             continue
-        _judge_into(row, out["question"], out["evidence"], out["report"], out["analyst_view"])
+
+        for attempt in range(rate_retries + 1):
+            _judge_into(row, out["question"], out["evidence"], out["report"],
+                        out["analyst_view"])
+            if attempt == rate_retries:
+                break
+            if row.get("judge_rate_limited"):
+                # Wait exactly as long as the provider asked, plus a second of headroom.
+                rate_limit_waits += 1
+                sleeper((row.get("judge_retry_after") or 60) + 1)
+                continue
+            if _is_transient_error(row.get("judge_error")):
+                # "High demand" clears on its own; the case is fine, the server is busy.
+                transient_waits += 1
+                sleeper(transient_wait)
+                continue
+            break
+
         if _is_judged(row):
             graded += 1
         if on_progress:
@@ -385,12 +455,15 @@ def rejudge_rows(rows: list[dict], outputs: list[dict], *, delay: float = 0.0,
         if not gate.record(row):
             break
         if delay and n < len(pending):
-            time.sleep(delay)
+            sleeper(delay)
+
     return {
         "graded": graded,
         "remaining": sum(1 for r in rows if not _is_judged(r)),
         "stopped_for_quota": not gate.open,
         "missing_output": missing_output,
+        "rate_limit_waits": rate_limit_waits,
+        "transient_waits": transient_waits,
     }
 
 
@@ -424,15 +497,20 @@ def rejudge(run_ref: str) -> None:
     result = {"graded": 0, "remaining": todo, "stopped_for_quota": False, "missing_output": 0}
     if todo:
         # Saved after every graded case, so an interrupted pass keeps its progress.
-        result = rejudge_rows(rows, outputs, delay=settings.judge_delay_seconds,
+        # A judge-only pass has no agent call between judgements, so it needs the
+        # per-minute interval rather than the mid-run delay.
+        result = rejudge_rows(rows, outputs, delay=settings.judge_min_interval_seconds,
                               on_progress=save)
         save()
 
     print_report(rows, judged=True, prev=previous_run(exclude=history_path), run_id=run_id)
     print(f"\nGraded {result['graded']} this pass; {result['remaining']} still ungraded.")
+    if result.get("rate_limit_waits"):
+        print(f"Waited out the per-minute limit {result['rate_limit_waits']} time(s) — "
+              "that one clears in under a minute, unlike the daily cap.")
     if result["stopped_for_quota"]:
-        print("Stopped early because the judge quota is spent. Run the same command again "
-              "after it resets (midnight Pacific) to finish.")
+        print("Stopped early because the day's judge allowance is spent. Run the same "
+              "command again after it resets (midnight Pacific) to finish.")
     if result["missing_output"]:
         print(f"{result['missing_output']} case(s) had no stored output and stayed ungraded.")
 

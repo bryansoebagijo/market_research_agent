@@ -35,8 +35,15 @@ class Settings(BaseSettings):
     anthropic_judge_model: str = "claude-sonnet-5"
     openai_api_key: str = ""
     openai_judge_model: str = "gpt-4o"
-    judge_model: str = "gemini-3.6-flash"  # same-family fallback
+    # Same-family fallback, so still not provider-independent — but a different model from
+    # the agent's flash-lite, with its own quota. Moved off gemini-3.6-flash after it
+    # returned 503 "high demand" on 15 of 18 calls across two days; 3.5-flash answers.
+    judge_model: str = "gemini-3.5-flash"
     judge_delay_seconds: float = 4.0  # pace judge calls against free-tier limits
+    # Read off the API's own refusal: the judge model allows 5 requests a minute on the
+    # free tier. A judge-only pass (--rejudge) has no agent call between judgements, so
+    # it needs ~12s of its own; the delay above is only adequate mid-run.
+    judge_min_interval_seconds: float = 13.0
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
