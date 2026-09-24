@@ -266,6 +266,13 @@ The judge uses a **different model** from the one that produced the output. Set
 with neither it falls back to a different Gemini model, and **the report prints that the
 grade is not provider-independent** rather than implying rigour it doesn't have.
 
+Worth knowing before relying on that fallback: the free tier allows **5 judge requests a
+minute and 20 a day**, and returns `503 "high demand"` under load. Across three evenings
+that left a 20-case run graded 5 of 20, on two different Gemini models. The harness now
+tells those three refusals apart — a spent day stops the pass, a spent minute is waited
+out, a busy server is retried — but no amount of handling manufactures capacity.
+`pip install langchain-anthropic` plus a key finishes the same job in minutes.
+
 ### The dataset is built around failure, not success
 20 cases, of which the most useful are the ones designed to catch confabulation:
 
