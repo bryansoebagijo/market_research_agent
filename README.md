@@ -326,31 +326,44 @@ why the check reports *unverified* and not *hallucinated*.
   day per project, and every tool on the same key draws from it. A judged run of the full
   suite needs all 20.
 
-### Measured results: the full suite (deterministic layers)
-The first run of all 20 cases (`eval/history/20260914-225010.json`) completed every agent
-run, but the judge's daily quota was already exhausted when it started. Every judge call
-returned `429`, so this baseline carries **no judge scores**, only the layers that need
-no model:
+### Measured results: the full suite
+Run `20260923-203642` — all 20 cases, every layer scored:
 
 | Metric | Score |
 |---|---:|
 | Agent runs completed | **20 / 20** |
-| Numeric traceability | **0.987** |
+| Numeric traceability *(model-free)* | **0.983** |
 | Ticker recall | **1.00** |
 | Focus coverage | **1.00** |
-| Data availability | **0.93** |
-| Source diversity | **7.7** sources/run |
-| Critic passes | **1.05** |
+| Data availability | **0.82** |
+| Source diversity | **7.3** sources/run |
+| Critic passes | **1.2** |
+| Report faithfulness *(judge)* | **0.993** |
+| Report relevance *(judge)* | **1.00** |
+| Analyst groundedness *(judge)* | **1.00** |
+
+**Read the judge numbers with care.** It gave exactly 1.0 to 19 of 20 cases, and a grader
+that almost never discriminates carries little information. The model-free traceability
+score is the stronger signal here: it flagged two cases the judge waved through. The grade
+is also not provider-independent, and the run was completed across two Gemini models — 16
+by `gemini-3.5-flash`, 4 by `gemini-3.6-flash`, because the latter was unavailable for two
+evenings — so `judge_model` is recorded per row rather than averaged away.
 
 Only two cases had any untraced figure, and the stored context resolved both:
-- **SOL to $500:** "nearly 400%" again, the same correct derivation.
+- **SOL to $500:** "nearly 400%", a correct derivation.
 - **All savings into NVDA:** *"operating and net margins above 60%"*. With margins of
   66.2% and 62.0% that's a true lower bound, not an invention. An earlier run flagged a
   bare 60 in this same case and couldn't be read, because it stored the number without
   the text around it.
 
-Judge failures are recorded per case and left out of the averages, so a missing judge
-costs the judge scores and nothing else.
+The single case the judge marked below full marks — 0.85, *"what revenue and earnings does
+Dogecoin generate, and what is its P/E ratio?"* — is also one of the two traceability
+flagged. Two checks built on entirely different principles landed on the same answer.
+
+Getting here took three evenings and a fix, not because the agent was slow but because the
+judge's free tier allows 5 requests a minute and 20 a day and returns 503 under load. The
+harness now tells those refusals apart and resumes, which is why the run finished from
+stored outputs without re-running a single agent.
 
 ## Design notes & honest limitations
 - **The reflection loop is bounded** by `MAX_CRITIC_LOOPS` so it always terminates, even
