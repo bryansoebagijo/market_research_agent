@@ -656,6 +656,30 @@ def token_multiples(symbol: str) -> dict:
     }
 
 
+def coin_price_history(symbol: str, days: int = 365) -> list[dict]:
+    """Daily closes with their dates, oldest first — enough history to read weekly swings.
+
+    The technicals tool fetches 95 days, which is ample for daily indicators but only
+    about 13 weekly bars: too few swings to call a weekly structure. This asks for the
+    free tier's full year instead.
+    """
+    coin_id = _coingecko_id(symbol)
+    if not coin_id:
+        return []
+    chart = _get(
+        f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
+        {"vs_currency": "usd", "days": days, "interval": "daily"},
+    )
+    points = chart.get("prices", []) if isinstance(chart, dict) else []
+    return [
+        {
+            "date": datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d"),
+            "close": float(price),
+        }
+        for ms, price in points if price
+    ]
+
+
 def current_metrics(symbol: str) -> dict:
     """Current values for every metric a thesis trigger can reference.
 
