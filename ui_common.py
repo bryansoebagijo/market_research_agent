@@ -500,6 +500,120 @@ def render_total3() -> None:
     )
 
 
+TREND_ICONS = {"bullish": "🟢", "bearish": "🔴", "ranging": "🟡", "unclear": "⚪"}
+EVENT_LABELS = {
+    "BOS": "break of structure",
+    "CHoCH": "change of character",
+    "breakout": "range breakout",
+    "breakdown": "range breakdown",
+}
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_assessment(symbol: str):
+    from agent.assessment import assess_coin
+
+    return assess_coin(symbol)
+
+
+def _render_timeframe(label: str, read: dict) -> None:
+    """One timeframe's structure: where the trend stands and on what levels."""
+    if not read.get("available"):
+        st.markdown(f"**{label}**")
+        st.caption(read.get("reason", "unreadable"))
+        return
+
+    event = EVENT_LABELS.get(read.get("event"))
+    st.markdown(f"**{label}: {TREND_ICONS.get(read['trend'], '')} {read['trend']}**"
+                + (f" — {event}" if event else ""))
+    st.caption(
+        f"last swing high {money(read['last_swing_high'])} ({read['last_swing_high_date']})  \n"
+        f"last swing low {money(read['last_swing_low'])} ({read['last_swing_low_date']})  \n"
+        f"now {money(read['price'])}"
+    )
+    if read.get("event_note"):
+        st.markdown(f"_{read['event_note']}_")
+    leg = read.get("current_leg") or {}
+    if leg and abs(leg.get("change_pct", 0)) >= 10:
+        st.caption(
+            f"⏳ Current leg unconfirmed: {leg['change_pct']:+.0f}% since "
+            f"{leg['from_date']}, with no counter-move large enough yet to set a new swing."
+        )
+
+
+def render_structure(symbol: str) -> None:
+    """Weekly and daily structure, weighed together with everything else known."""
+    loaded_key = f"structure_loaded_{symbol}"
+    if not st.session_state.get(loaded_key):
+        st.caption(
+            "Reads structure on the weekly and daily, then weighs it with momentum, "
+            "protocol earnings and valuation. It needs a few CoinGecko calls and the free "
+            "tier allows about five a minute — which the rest of this page has usually "
+            "spent by the time you get here — so it loads on demand and then caches."
+        )
+        if st.button(f"Read {symbol} structure", key=f"load_structure_{symbol}",
+                     type="primary"):
+            st.session_state[loaded_key] = True
+            st.rerun()
+        return
+
+    with st.spinner(f"Reading {symbol} structure…"):
+        data = cached_assessment(symbol)
+
+    icon = {"green": "🟢", "orange": "🟠", "red": "🔴"}.get(data["tone"], "⚪")
+    scored = [f for f in data["factors"] if f["score"] is not None]
+    st.markdown(f"### {icon} {data['verdict']}")
+    if scored:
+        st.caption(
+            f"Score {data['score']:+d} across {len(scored)} factors, weekly structure "
+            "counted double because it sets the context the daily move happens inside."
+        )
+    else:
+        st.caption(
+            "Nothing could be fetched, so there is no score behind this. That's an absence "
+            "of evidence, not a neutral verdict."
+        )
+
+    structure = data.get("structure")
+    if structure:
+        left, right = st.columns(2)
+        with left:
+            _render_timeframe("Weekly", structure["weekly"])
+        with right:
+            _render_timeframe("Daily", structure["daily"])
+        st.info(structure["summary"])
+
+    st.markdown("**How that was scored**")
+    for factor in data["factors"]:
+        if factor["score"] is None:
+            st.markdown(f"⚪ **{factor['name']}** — {factor['detail']}")
+            continue
+        mark = "🟢" if factor["points"] > 0 else ("🔴" if factor["points"] < 0 else "⚪")
+        st.markdown(f"{mark} **{factor['name']} {factor['points']:+d}** — {factor['detail']}")
+
+    if data.get("unavailable"):
+        st.warning(
+            "Couldn't fetch " + ", ".join(data["unavailable"]) + " — those factors are "
+            "missing from the score. CoinGecko's free tier allows about five requests a "
+            "minute, so this usually clears on its own."
+        )
+        # A successful read is worth caching for half an hour; a rate-limited one is not.
+        # Dropping it means the next interaction refetches instead of serving the same
+        # gap until the TTL expires.
+        cached_assessment.clear()
+        if st.button(f"Retry {symbol}", key=f"retry_structure_{symbol}"):
+            st.rerun()
+
+    st.caption(
+        "Rule-based and deterministic: every factor scores by a stated test, so the same "
+        "data always gives the same read and the reasoning above is the whole of it — no "
+        "model involved. Swings are **close-based**, because the free tier carries no "
+        "intraday highs or lows, which makes this stricter than a candle chart: a level "
+        "needs a close beyond it, not a touch. Structure describes what price has already "
+        "done and forecasts nothing. Informational only, not advice."
+    )
+
+
 TONE_ICONS = {"green": "🟢", "orange": "🟠", "red": "🔴", "gray": "⚪"}
 
 

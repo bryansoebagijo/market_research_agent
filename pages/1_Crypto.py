@@ -19,6 +19,7 @@ from ui_common import (
     render_save_thesis,
     render_protocol_history,
     render_signal,
+    render_structure,
     render_token_multiples,
     render_total3,
     render_watchlist_editor,
@@ -380,11 +381,16 @@ else:
 st.divider()
 render_token_multiples(selected)
 
+# --- structure and the combined read ---
+st.divider()
+render_structure(selected)
+
 # --- on-demand full analysis ---
 st.divider()
 st.caption(
-    "The full analyst view runs the research agent — about a minute, and it uses "
-    "free-tier API quota, so it only runs when you ask."
+    "The read above is instant and rule-based. This runs the full research agent instead "
+    "— about a minute, and it spends free-tier quota — for the news, macro and written "
+    "analyst view that fixed rules can't cover."
 )
 if st.button(f"🔍 Analyze {selected} (buy / hold / sell view)", type="primary"):
     result = run_agent_analysis(

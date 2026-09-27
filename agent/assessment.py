@@ -155,12 +155,26 @@ def assess_coin(symbol: str) -> dict:
         elif cheaper is not None and cheaper <= 25:
             add("Valuation", -1, 1, f"{ps:.0f}x revenue vs a {median:.0f}x peer median — "
                                     f"dearer than {100 - cheaper:.0f}% of peers")
+        elif cheaper is None:
+            add("Valuation", 0, 1, f"{ps:.0f}x revenue; no peer comparison available")
         else:
-            add("Valuation", 0, 1, f"{ps:.0f}x revenue, around the {median:.0f}x peer median")
+            # Describe the percentile, since that is what set the score. Peer multiples
+            # are skewed enough that a token can sit at four times the median and still
+            # be cheaper than a third of its peers — saying "around the median" there
+            # would contradict the number beside it.
+            add("Valuation", 0, 1,
+                f"{ps:.0f}x revenue — cheaper than {cheaper:.0f}% of peers "
+                f"(median {median:.0f}x)")
 
     total = sum(f["points"] for f in factors)
     possible = sum(f["weight"] for f in factors if f["score"] is not None)
-    verdict, tone = next((label, colour) for cutoff, label, colour in BANDS if total >= cutoff)
+    if possible == 0:
+        # Every source failed, and a band computed from nothing still reads as a
+        # judgement. "Mixed" from zero evidence is worse than saying there is none.
+        verdict, tone = "Not enough data", "gray"
+    else:
+        verdict, tone = next((label, colour)
+                             for cutoff, label, colour in BANDS if total >= cutoff)
 
     return {
         "symbol": symbol,
