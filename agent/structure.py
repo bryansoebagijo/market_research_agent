@@ -99,6 +99,21 @@ def zigzag(values: list[float], threshold_pct: float) -> list[dict]:
     return pivots
 
 
+def _price(value: float) -> str:
+    """A readable price across crypto's range, which spans $80,000 and $0.00001234.
+
+    Plain %g turns $80,914 into "8.091e+04", which is unreadable in a sentence and
+    inconsistent with the levels shown beside it.
+    """
+    if value >= 1000:
+        return f"{value:,.0f}"
+    if value >= 1:
+        return f"{value:,.2f}"
+    if value >= 0.01:
+        return f"{value:.4f}"
+    return f"{value:.8f}".rstrip("0").rstrip(".")
+
+
 def _trend_from(highs: list[dict], lows: list[dict]) -> str:
     """Bullish needs a higher high AND a higher low; bearish the mirror; else ranging."""
     if len(highs) < 2 or len(lows) < 2:
@@ -139,26 +154,26 @@ def analyse(series: list[dict], threshold_pct: float) -> dict:
     if trend == "bullish":
         if price < last_low["value"]:
             event, event_note = "CHoCH", (
-                f"closed below the last higher-low ({last_low['value']:,.4g} on "
+                f"closed below the last higher-low ({_price(last_low['value'])} on "
                 f"{series[last_low['index']]['date']}) — the uptrend's pattern has failed")
         elif price > last_high["value"]:
             event, event_note = "BOS", (
-                f"closed above the last swing high ({last_high['value']:,.4g} on "
+                f"closed above the last swing high ({_price(last_high['value'])} on "
                 f"{series[last_high['index']]['date']}) — the uptrend continued")
     elif trend == "bearish":
         if price > last_high["value"]:
             event, event_note = "CHoCH", (
-                f"closed above the last lower-high ({last_high['value']:,.4g} on "
+                f"closed above the last lower-high ({_price(last_high['value'])} on "
                 f"{series[last_high['index']]['date']}) — the downtrend's pattern has failed")
         elif price < last_low["value"]:
             event, event_note = "BOS", (
-                f"closed below the last swing low ({last_low['value']:,.4g} on "
+                f"closed below the last swing low ({_price(last_low['value'])} on "
                 f"{series[last_low['index']]['date']}) — the downtrend continued")
     else:
         if price > last_high["value"]:
-            event, event_note = "breakout", f"closed above the range high ({last_high['value']:,.4g})"
+            event, event_note = "breakout", f"closed above the range high ({_price(last_high['value'])})"
         elif price < last_low["value"]:
-            event, event_note = "breakdown", f"closed below the range low ({last_low['value']:,.4g})"
+            event, event_note = "breakdown", f"closed below the range low ({_price(last_low['value'])})"
 
     # The leg since the last confirmed pivot has no pivot of its own yet: price hasn't
     # reversed far enough to set one. Reporting it matters, because a zigzag's last
