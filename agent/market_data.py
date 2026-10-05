@@ -160,6 +160,126 @@ def top_open_interest(limit: int = 5) -> list[dict]:
     ]
 
 
+# ---------------------------------------------- US spot ETF flows
+
+# Flows into the US spot BTC and ETH ETFs, from SoSoValue's public API.
+#
+# This source was chosen after the obvious ones turned out to be closed: DefiLlama's ETF
+# data sits behind a paid plan (HTTP 402), and Farside — the figure most outlets quote —
+# is behind bot protection that this project will not try to defeat. SoSoValue serves the
+# same numbers openly, with no key and no browser impersonation.
+#
+# Both endpoints are POST, not GET, which is worth knowing: a GET probe answers 405 Method
+# Not Allowed, which looks like a dead endpoint and is how this source gets missed.
+#
+# Why this matters on a crypto dashboard: spot ETFs buy and sell real coins, so a flow is
+# actual demand hitting the market rather than positioning, which is what open interest
+# above measures. The two answer different questions and sit together for that reason.
+_SOSOVALUE = "https://api.sosovalue.xyz/openapi/v2/etf/"
+
+ETF_TYPES = {"BTC": "us-btc-spot", "ETH": "us-eth-spot"}
+
+
+def _sosovalue(endpoint: str, etf_type: str):
+    """POST to SoSoValue and unwrap its envelope, raising on a non-zero code.
+
+    Errors arrive in the body with HTTP 200, so the status code alone never reveals them.
+    Raising here means an endpoint that starts demanding a key surfaces as a clear message
+    rather than as an empty chart.
+    """
+    r = httpx.post(_SOSOVALUE + endpoint, json={"type": etf_type},
+                   timeout=30.0, headers=HEADERS)
+    r.raise_for_status()
+    body = r.json()
+    if str(body.get("code")) != "0":
+        detail = body.get("msg") or f"code {body.get('code')}"
+        raise RuntimeError(f"SoSoValue: {detail}")
+    return body.get("data")
+
+
+def _soso_value(field) -> float | None:
+    """Pull the number out of SoSoValue's {value, lastUpdateDate, status} wrapper."""
+    return _num((field or {}).get("value")) if isinstance(field, dict) else _num(field)
+
+
+def etf_flows(asset: str = "BTC", days: int = 90) -> dict:
+    """Daily net flows into the US spot ETFs for BTC or ETH, plus the per-fund split.
+
+    `days` trims the returned history; the API always sends about 300 rows.
+
+    Rows are TRADING days — weekends and US market holidays are simply absent, not zero —
+    so summing the last five rows means the last five sessions, not the last calendar week.
+    That also means the newest row is normally yesterday's session, which is why `as_of` is
+    reported rather than assumed to be today.
+    """
+    asset = asset.upper()
+    etf_type = ETF_TYPES.get(asset)
+    if not etf_type:
+        raise ValueError(f"No US spot ETF series for {asset}")
+
+    history = _sosovalue("historicalInflowChart", etf_type) or []
+    rows = sorted(
+        (
+            {
+                "date": r.get("date"),
+                "net_flow": _num(r.get("totalNetInflow")),
+                "net_assets": _num(r.get("totalNetAssets")),
+                "cum_flow": _num(r.get("cumNetInflow")),
+                "traded": _num(r.get("totalValueTraded")),
+            }
+            for r in history
+            if r.get("date")
+        ),
+        key=lambda r: r["date"],
+    )
+    flows = [r for r in rows if r["net_flow"] is not None]
+
+    def window(n: int) -> float | None:
+        return sum(r["net_flow"] for r in flows[-n:]) if len(flows) >= n else None
+
+    # The headline figures come from the same history that draws the chart, so the two can
+    # never disagree. The metrics endpoint carries its own slightly different cumulative
+    # total (a timing difference of a few basis points), and mixing the two sources would
+    # put a number beside a chart that contradicts it.
+    latest = flows[-1] if flows else {}
+
+    # Fund-level detail is only on the metrics endpoint, and it's the part that stops a
+    # headline misleading: a big legacy outflow can mask real buying everywhere else.
+    funds, share_of_mcap, holdings = [], None, None
+    try:
+        metrics = _sosovalue("currentEtfDataMetrics", etf_type) or {}
+        share_of_mcap = _soso_value(metrics.get("totalNetAssetsPercentage"))
+        holdings = _soso_value(metrics.get("totalTokenHoldings"))
+        for f in metrics.get("list") or []:
+            funds.append({
+                "ticker": (f.get("ticker") or "").strip(),
+                "institute": (f.get("institute") or "").strip(),
+                "fee": _soso_value(f.get("fee")),
+                "net_assets": _soso_value(f.get("netAssets")),
+                "net_flow": _soso_value(f.get("dailyNetInflow")),
+                "cum_flow": _soso_value(f.get("cumNetInflow")),
+            })
+        funds.sort(key=lambda f: f["net_assets"] or 0, reverse=True)
+    except Exception:  # noqa: BLE001 - the breakdown is a bonus; the series is the point
+        pass
+
+    return {
+        "asset": asset,
+        "as_of": latest.get("date"),
+        "daily": rows[-days:],
+        "latest_flow": latest.get("net_flow"),
+        "flow_5d": window(5),
+        "flow_20d": window(20),
+        "net_assets": latest.get("net_assets"),
+        "cum_flow": latest.get("cum_flow"),
+        # A fraction from the API (0.064), shown as a percentage by the UI.
+        "share_of_market_cap": share_of_mcap,
+        "token_holdings": holdings,
+        "funds": funds,
+        "source": "SoSoValue",
+    }
+
+
 def trending_coins(limit: int = 7) -> list[dict]:
     """CoinGecko's search-popularity trending list."""
     d = _get("https://api.coingecko.com/api/v3/search/trending")

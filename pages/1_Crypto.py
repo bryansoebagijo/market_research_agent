@@ -14,6 +14,7 @@ from ui_common import (
     cached_trending_narratives,
     money,
     pct,
+    render_etf_flows,
     render_growth_charts,
     render_news,
     render_save_thesis,
@@ -69,6 +70,11 @@ with right:
             st.info("Open-interest data unavailable right now.")
     except Exception as exc:  # noqa: BLE001
         st.warning(f"Couldn't load open interest: {exc}")
+
+st.divider()
+
+# ---------------- spot ETF flows: the other side of the leverage picture ----------------
+render_etf_flows()
 
 st.divider()
 

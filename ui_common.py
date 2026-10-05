@@ -21,6 +21,11 @@ TTL_NEWS = 600
 TTL_RANKINGS = 300
 TTL_DETAIL = 180
 
+# D3's SI prefix renders 1e9 as "1G", so a chart axis would read "$1G" beside a table
+# reading "$1.00B" for the same number. Every axis below relabels giga as billions to
+# match `money()` and the way the figures are written everywhere else on these pages.
+MONEY_AXIS_LABEL = "replace(format(datum.value, '$~s'), 'G', 'B')"
+
 
 # ---------- cached data accessors ----------
 
@@ -44,6 +49,14 @@ def cached_headlines_ai(kind: str, limit: int = 5):
 @st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)
 def cached_open_interest(limit: int = 5):
     return md.top_open_interest(limit)
+
+
+# ETF flows are published once per trading session, so a short TTL would only re-fetch the
+# same numbers. This one is cheap and doesn't touch CoinGecko, so unlike the heavier panels
+# it can render on page load without competing for that rate-limit budget.
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_etf_flows(asset: str, days: int = 90):
+    return md.etf_flows(asset, days)
 
 
 @st.cache_data(ttl=TTL_RANKINGS, show_spinner=False)
@@ -366,6 +379,153 @@ def _forecast_verdict() -> dict | None:
         return None
 
 
+FLOW_IN, FLOW_OUT = "#2e9e5b", "#d1495b"
+FLOW_AVG_SESSIONS = 5
+
+
+def _flow_chart(rows: list[dict], height: int = 260) -> None:
+    """Daily net flow as signed bars, with a 5-session average over the top.
+
+    Daily flows are noisy enough that single bars say little on their own — one large
+    redemption can sit inside a strong week of buying. The average line is what shows
+    whether money has actually been arriving or leaving lately, and it stays on the same
+    axis as the bars because it's a mean rather than a running total.
+    """
+    df = pd.DataFrame([r for r in rows if r.get("net_flow") is not None])
+    if df.empty:
+        return
+    df["_date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["_date"]).sort_values("_date")
+    if df.empty:
+        return
+    df["_avg"] = df["net_flow"].rolling(FLOW_AVG_SESSIONS, min_periods=1).mean()
+
+    x_enc = alt.X("_date:T", title=None, axis=alt.Axis(format="%d %b", labelAngle=-45))
+    base = alt.Chart(df)
+
+    bars = base.mark_bar(size=3).encode(
+        x=x_enc,
+        y=alt.Y("net_flow:Q", title="Net flow",
+                axis=alt.Axis(format="$~s", labelExpr=MONEY_AXIS_LABEL)),
+        color=alt.condition(alt.datum.net_flow >= 0,
+                            alt.value(FLOW_IN), alt.value(FLOW_OUT)),
+    )
+    average = base.mark_line(color="#4c78a8", strokeWidth=2).encode(
+        x=x_enc, y=alt.Y("_avg:Q", title="Net flow"),
+    )
+    # A full-height rule so the tooltip fires from anywhere vertically, matching the
+    # behaviour of the other charts on these pages.
+    hover = alt.selection_point(nearest=True, on="pointerover",
+                                fields=["_date"], empty=False)
+    hover_layer = (
+        base.mark_rule(color="gray")
+        .encode(
+            x=x_enc,
+            opacity=alt.condition(hover, alt.value(0.35), alt.value(0)),
+            tooltip=[
+                alt.Tooltip("_date:T", title="Session", format="%d %b %Y"),
+                alt.Tooltip("net_flow:Q", title="Net flow", format="$,.0f"),
+                alt.Tooltip("_avg:Q", title=f"{FLOW_AVG_SESSIONS}-session avg",
+                            format="$,.0f"),
+            ],
+        )
+        .add_params(hover)
+    )
+    st.altair_chart(alt.layer(bars, average, hover_layer).properties(height=height),
+                    use_container_width=True)
+
+
+def _render_one_etf(asset: str, days: int) -> dict | None:
+    """One asset's flow metrics and chart. Returns the data so the caller can reuse it."""
+    try:
+        data = cached_etf_flows(asset, days)
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"Couldn't load {asset} ETF flows: {exc}")
+        return None
+    if not data.get("daily"):
+        st.info(f"No {asset} ETF flow data returned.")
+        return None
+
+    st.markdown(f"**{asset} — US spot ETFs**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Latest session", money(data["latest_flow"]),
+              help=f"Net creations minus redemptions on {data['as_of']}.")
+    c2.metric(f"Last {FLOW_AVG_SESSIONS} sessions", money(data["flow_5d"]))
+    c3.metric("Last 20 sessions", money(data["flow_20d"]))
+
+    holdings, share = data.get("token_holdings"), data.get("share_of_market_cap")
+    if holdings is not None:
+        detail = f"Holding **{holdings:,.0f} {asset}** · {money(data['net_assets'])} in assets"
+        if share is not None:
+            detail += f" · **{share * 100:.1f}%** of all {asset}"
+        st.caption(detail)
+
+    _flow_chart(data["daily"])
+    return data
+
+
+def _fund_table(data: dict) -> None:
+    """Per-fund assets and flow, so one big mover can't be mistaken for the whole story."""
+    funds = data.get("funds") or []
+    if not funds:
+        return
+    frame = pd.DataFrame([
+        {
+            "Fund": f["ticker"],
+            "Issuer": f["institute"],
+            "Assets": money(f["net_assets"]),
+            "Latest flow": money(f["net_flow"]) if f["net_flow"] else "—",
+            "Since launch": money(f["cum_flow"]),
+            "Fee": f"{f['fee'] * 100:.2f}%" if f.get("fee") is not None else "—",
+        }
+        for f in funds
+    ])
+    st.dataframe(frame, hide_index=True, use_container_width=True)
+
+
+def render_etf_flows(days: int = 90) -> None:
+    """Money actually entering and leaving the US spot BTC and ETH ETFs.
+
+    This sits below open interest on purpose: open interest measures leverage, which is
+    positioning and can vanish without a coin changing hands. An ETF flow is spot demand —
+    a creation means the fund bought real coins — so the two read the market differently.
+    """
+    st.subheader("US spot ETF flows")
+
+    window = st.radio(
+        "Window", ["1 month", "3 months", "9 months"], index=1, horizontal=True,
+        label_visibility="collapsed", key="etf_window",
+    )
+    days = {"1 month": 22, "3 months": 66, "9 months": 200}[window]
+
+    left, right = st.columns(2)
+    with left:
+        btc = _render_one_etf("BTC", days)
+    with right:
+        eth = _render_one_etf("ETH", days)
+
+    as_of = (btc or eth or {}).get("as_of")
+    st.caption(
+        "Green is money in, red is money out; the blue line is the "
+        f"{FLOW_AVG_SESSIONS}-session average. Figures cover US trading sessions only, so "
+        "weekends and market holidays are absent rather than zero, and the newest session "
+        f"is normally the previous business day{f' ({as_of})' if as_of else ''}. "
+        "Source: SoSoValue."
+    )
+
+    if btc or eth:
+        with st.expander("Fund-level detail"):
+            st.caption(
+                "Worth checking before reading a headline number: the older, "
+                "higher-fee trusts have been bleeding assets since launch, which can "
+                "mask steady buying across the newer funds."
+            )
+            for data in (btc, eth):
+                if data:
+                    st.markdown(f"**{data['asset']}**")
+                    _fund_table(data)
+
+
 def render_total3() -> None:
     """TOTAL3 with a volatility cone — a range, not a prediction."""
     from agent import total3 as t3
@@ -433,7 +593,8 @@ def render_total3() -> None:
             x=alt.X("date:T", title=None),
             # zero=False: the movement sits between $0.7T and $1T, so a zero-based axis
             # squeezes all of it into the top third of the chart.
-            y=alt.Y("TOTAL3:Q", title="TOTAL3", axis=alt.Axis(format="$~s"),
+            y=alt.Y("TOTAL3:Q", title="TOTAL3",
+                    axis=alt.Axis(format="$~s", labelExpr=MONEY_AXIS_LABEL),
                     scale=alt.Scale(zero=False)),
             tooltip=[alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
                      alt.Tooltip("TOTAL3:Q", title="TOTAL3", format="$,.0f")]),
@@ -696,15 +857,21 @@ def cached_stock_overview(symbol: str, with_fundamentals: bool = True):
 # ---------- formatting ----------
 
 def money(value, decimals: int = 2) -> str:
-    """Compact currency: $68.97B, $8.35M, $1,234.56."""
+    """Compact currency: $68.97B, $8.35M, $1,234.56, -$2.81M.
+
+    The sign goes outside the currency symbol. Formatting the number whole would give
+    "$-2.81M", which is the wrong way round and reads badly in a metric — and negatives
+    are routine here now that ETF outflows are on the page.
+    """
     try:
         n = float(value)
     except (TypeError, ValueError):
         return "—"
+    sign, n = ("-", -n) if n < 0 else ("", n)
     for cutoff, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M")):
-        if abs(n) >= cutoff:
-            return f"${n / cutoff:.2f}{suffix}"
-    return f"${n:,.{decimals}f}"
+        if n >= cutoff:
+            return f"{sign}${n / cutoff:.2f}{suffix}"
+    return f"{sign}${n:,.{decimals}f}"
 
 
 def pct(value) -> str:
@@ -789,7 +956,8 @@ def month_line_chart(
     x_enc = alt.X("_date:T", title=None,
                   axis=alt.Axis(format="%b-%Y", labelAngle=-45, tickCount=len(df)))
     y_enc = alt.Y(f"{value_field}:Q", title=label,
-                  axis=alt.Axis(format="$~s" if money_axis else "~s"))
+                  axis=alt.Axis(format="$~s" if money_axis else "~s",
+                                labelExpr=MONEY_AXIS_LABEL if money_axis else alt.Undefined))
 
     base = alt.Chart(df)
     line = base.mark_line(point=True).encode(x=x_enc, y=y_enc)
@@ -853,7 +1021,9 @@ def multi_line_chart(
         .encode(
             x=x_enc,
             y=alt.Y("value:Q", title=label,
-                    axis=alt.Axis(format="$~s" if money_axis else "~s")),
+                    axis=alt.Axis(format="$~s" if money_axis else "~s",
+                                  labelExpr=MONEY_AXIS_LABEL if money_axis
+                                  else alt.Undefined)),
             color=alt.Color("series:N", title=None,
                             scale=alt.Scale(domain=names)),
         )
