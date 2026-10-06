@@ -34,6 +34,11 @@ METRIC_LABELS = {
     "eps_yoy": ("EPS YoY", "{:+.1f}%"),
     "operating_margin": ("Operating margin", "{:.1f}%"),
     "net_margin": ("Net margin", "{:.1f}%"),
+    # Flows are carried in millions so a threshold stays human-scale, in line with every
+    # other metric here. Raw dollars would ask the model to emit -500000000, which is
+    # easy to get wrong by an order of magnitude and impossible to eyeball on the card.
+    "etf_flow_20d": ("US spot ETF net flow (20 sessions)", "{:+,.0f}M USD"),
+    "etf_sessions_positive": ("ETF buying sessions (of 20)", "{:.0f}"),
 }
 
 

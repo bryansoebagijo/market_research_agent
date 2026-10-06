@@ -80,9 +80,14 @@ class Trigger(BaseModel):
 
     metric: str = Field(
         description="One of: rsi, price, revenue_growth_3m, tvl_growth_3m, "
-        "revenue_to_tvl, revenue_yoy, eps_yoy, operating_margin, net_margin. "
+        "revenue_to_tvl, revenue_yoy, eps_yoy, operating_margin, net_margin, "
+        "etf_flow_20d, etf_sessions_positive. "
         "Use only metrics relevant to the asset type — the *_yoy and *_margin metrics "
-        "are stocks-only, revenue_growth_3m/tvl_growth_3m/revenue_to_tvl crypto-only."
+        "are stocks-only, revenue_growth_3m/tvl_growth_3m/revenue_to_tvl crypto-only, "
+        "and the etf_* metrics are BTC and ETH only (no other asset has a US spot ETF). "
+        "etf_flow_20d is net US spot ETF flow over the last ~20 trading sessions in "
+        "MILLIONS of USD, so -500 means $500M of net selling over about a month; "
+        "etf_sessions_positive is how many of those ~20 sessions saw net buying, 0-20."
     )
     operator: str = Field(description="Either '<' or '>'.")
     threshold: float = Field(description="The numeric level that would trip it.")

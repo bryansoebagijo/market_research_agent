@@ -276,6 +276,95 @@ def test_numbers_are_exposed_for_charting():
     assert data["etf_sessions_positive"] == 7
 
 
+# --- the thesis path: a flow condition has to be checkable, not just readable -------------
+
+@contextmanager
+def stub_metrics_deps():
+    """Stub the network under current_metrics so only the ETF path is exercised."""
+    original = md.crypto_technicals
+    md.crypto_technicals = lambda s: {"text": "", "source": "stub", "data": {"rsi": 50.0}}
+    try:
+        with patched(ok):
+            yield
+    finally:
+        md.crypto_technicals = original
+
+
+def test_flow_metrics_resolve_for_btc_in_millions():
+    with stub_metrics_deps():
+        m = md.current_metrics("BTC")
+    # 680 dollars of flow in the fixture -> 0.00068 million. The unit matters: thresholds
+    # are authored in millions, so resolving raw dollars here would be out by 1e6.
+    assert m["etf_flow_20d"] == 680.0 / 1e6
+    assert m["etf_sessions_positive"] == 7
+
+
+def test_flow_metrics_absent_for_an_asset_with_no_etf():
+    with stub_metrics_deps():
+        m = md.current_metrics("AAVE")
+    assert "etf_flow_20d" not in m and "etf_sessions_positive" not in m
+
+
+def test_a_flow_outage_does_not_cost_the_other_metrics():
+    original = md.crypto_technicals
+    md.crypto_technicals = lambda s: {"text": "", "source": "stub", "data": {"rsi": 50.0}}
+    try:
+        with patched(lambda ep: {"code": "500", "msg": "down"}):
+            m = md.current_metrics("BTC")
+    finally:
+        md.crypto_technicals = original
+    assert m["rsi"] == 50.0, "one dead source must not empty the whole metric set"
+    assert "etf_flow_20d" not in m
+
+
+def test_a_flow_trigger_is_checked_rather_than_handed_back_as_prose():
+    from agent.theses import evaluate
+
+    thesis = {
+        "formed": "2026-10-01",
+        "conditions": ["ETF flows reverse", "Some unmeasurable regulatory shift"],
+        "triggers": [{"metric": "etf_flow_20d", "operator": "<", "threshold": 0,
+                      "description": "ETF flows reverse"}],
+    }
+    # Flows positive in the fixture, so the condition has NOT been met.
+    with stub_metrics_deps():
+        result = evaluate(thesis, md.current_metrics("BTC"))
+
+    assert result["status"] == "intact"
+    assert [c["status"] for c in result["checks"]] == ["holding"]
+    assert result["checks"][0]["label"].startswith("US spot ETF net flow")
+    # The whole point: this condition is verified, not pushed into the prose bucket.
+    assert "ETF flows reverse" not in result["manual"]
+
+
+def test_a_broken_flow_thesis_reads_as_broken():
+    from agent.theses import evaluate
+
+    thesis = {"formed": "2026-10-01", "conditions": [],
+              "triggers": [{"metric": "etf_sessions_positive", "operator": "<",
+                            "threshold": 8, "description": "Buying on under 8 of 20"}]}
+    with stub_metrics_deps():
+        result = evaluate(thesis, md.current_metrics("BTC"))
+    # 7 of 10 sessions positive, below the threshold of 8 -> the thesis is broken.
+    assert result["status"] == "broken"
+
+
+def test_every_formatted_metric_is_one_the_analyst_knows_about():
+    """The three vocabularies must agree, or a trigger is unreadable forever.
+
+    A metric the UI can format but the analyst was never told about is dead weight; one
+    the analyst emits that nothing resolves sits at "unknown" on the card for good,
+    silently. That is exactly the gap the ETF metrics were added to close, so it gets a
+    test rather than a comment.
+    """
+    from agent.state import Trigger
+    from agent.theses import METRIC_LABELS
+
+    described = Trigger.model_fields["metric"].description
+    missing = [m for m in METRIC_LABELS if m not in described]
+    assert not missing, f"not offered to the analyst: {missing}"
+
+
 if __name__ == "__main__":
     tests = [(name, fn) for name, fn in globals().items()
              if name.startswith("test_") and callable(fn)]

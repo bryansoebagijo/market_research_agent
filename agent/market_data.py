@@ -24,6 +24,7 @@ from agent.tools import (
     classify_ticker,
     compute_ema,
     compute_rsi,
+    ETF_TYPES,
     crypto_technicals,
     etf_flow_data as _etf_flow_data,
     stock_earnings,
@@ -692,11 +693,26 @@ def coin_price_history(symbol: str, days: int = 365) -> list[dict]:
 def current_metrics(symbol: str) -> dict:
     """Current values for every metric a thesis trigger can reference.
 
-    Built from the already-cached technicals, protocol health and growth calls, so
-    monitoring a thesis costs nothing beyond what viewing the asset would.
+    Mostly built from the already-cached technicals, protocol health and growth calls, so
+    monitoring a thesis costs little beyond what viewing the asset would. The exception is
+    the ETF flow pair, which is one extra request for BTC and ETH — worth it because the
+    analyst's invalidation conditions for those two are usually about flows, and a
+    condition nothing can read is one the monitor has to hand back to you as prose.
     """
     kind = classify_ticker(symbol)
     out: dict = {}
+
+    if symbol.upper() in ETF_TYPES:
+        try:
+            # days=1 trims only the returned daily series; the windows below are computed
+            # from the full history regardless, so this keeps the payload small.
+            flows = _etf_flow_data(symbol, days=1)
+            if flows.get("flow_counted") is not None:
+                # Millions, matching the threshold scale the analyst is asked to use.
+                out["etf_flow_20d"] = flows["flow_counted"] / 1e6
+            out["etf_sessions_positive"] = flows["sessions_positive"]
+        except Exception:  # noqa: BLE001 - a flow outage shouldn't cost the other checks
+            pass
 
     tech = (crypto_technicals(symbol) if kind == "crypto" else stock_technicals(symbol))
     data = tech.get("data") or {}
