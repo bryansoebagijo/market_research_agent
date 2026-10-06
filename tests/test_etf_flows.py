@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent import market_data as md  # noqa: E402
+from agent import tools  # noqa: E402
 
 # Ten trading sessions: note 3-4 Jan and 10-11 Jan are a weekend and simply absent.
 SESSIONS = [
@@ -77,16 +78,16 @@ def patched(body_for):
     `md.httpx` is the shared httpx module, so patching it without restoring would leak
     into every other test in the same pytest process.
     """
-    original = md.httpx.post
+    original = tools.httpx.post
 
     def post(url, json=None, timeout=None, headers=None):  # noqa: A002
         return FakeResponse(body_for(url.rsplit("/", 1)[-1]))
 
-    md.httpx.post = post
+    tools.httpx.post = post
     try:
         yield
     finally:
-        md.httpx.post = original
+        tools.httpx.post = original
 
 
 def ok(endpoint):
@@ -196,6 +197,83 @@ def test_unknown_asset_is_rejected():
         pass
     else:
         raise AssertionError("only BTC and ETH have US spot ETFs")
+
+
+def test_dashboard_and_agent_read_the_same_function():
+    # market_data re-exports the tools implementation. If these ever diverge, the panel
+    # and the analyst could describe the same day differently.
+    assert md.etf_flows is tools.etf_flow_data
+
+
+# --- the agent-facing tool: prose the analyst reasons over ----------------------------------
+
+def flows_text(symbol="BTC", body_for=ok):
+    with patched(body_for):
+        return tools.etf_flows(symbol)
+
+
+def test_a_coin_without_an_etf_is_not_treated_as_failing():
+    out = tools.etf_flows("SOL")  # no request needed
+    assert out["data"]["has_etf"] is False
+    # The absence of an ETF is not bearish, and the wording has to say so — an analyst
+    # reading "no flows" as weak demand would be drawing a conclusion from nothing.
+    assert "not a negative signal" in out["text"]
+
+
+def test_persistence_is_reported_not_just_the_latest_day():
+    # One session is noise. How many of the last N were buying is the reasonable read.
+    text = flows_text()["text"]
+    assert "positive on" in text and "of 10" in text
+
+
+def test_recent_week_against_the_month_is_called_out():
+    # The first five sessions sum to +240. Make the last five -20 each (-100), so the
+    # month stays positive while the week is negative — small enough not to flip both,
+    # which would test nothing.
+    rows = [dict(r) for r in HISTORY]
+    for r in rows[-5:]:
+        r["totalNetInflow"] = -20.0
+
+    def body_for(endpoint):
+        return {"code": 0, "data": rows if endpoint == "historicalInflowChart" else METRICS}
+
+    text = flows_text(body_for=body_for)["text"]
+    assert "run the other way" in text, "a week against the month must be stated as a turn"
+    assert "bought" in text, "the month's own verdict should still read as buying"
+
+
+def test_a_short_series_does_not_invent_a_selling_verdict():
+    # Fewer than 20 sessions leaves `flow_20d` None by design. Prose built on that None
+    # would read a missing window as zero and announce selling that never happened, while
+    # the session tally beside it said the opposite.
+    out = flows_text()
+    assert out["data"]["etf_flow_20d"] == 680.0  # all ten, not a None-as-zero
+    assert "bought" in out["text"]
+
+
+def test_same_direction_week_is_not_called_a_turn():
+    assert "run the other way" not in flows_text()["text"]
+
+
+def test_a_legacy_fund_in_redemption_is_surfaced():
+    # BIG carries -400 cumulative. Without this note the headline reads as the whole
+    # market's verdict when one fund is dragging it.
+    assert "BIG" in flows_text()["text"]
+
+
+def test_failure_degrades_to_a_message_not_an_exception():
+    out = flows_text(body_for=lambda ep: {"code": "401", "msg": "API key missing."})
+    assert "unavailable" in out["text"]
+    assert out["source"] == "SoSoValue"
+
+
+def test_numbers_are_exposed_for_charting():
+    data = flows_text()["data"]
+    assert data["has_etf"] is True
+    # All ten sessions: 100-50+200+10-20+300+40-5+80+25.
+    assert data["etf_flow_20d"] == 680.0
+    assert data["etf_sessions_counted"] == 10
+    assert data["etf_sessions_positive"] == 7
 
 
 if __name__ == "__main__":

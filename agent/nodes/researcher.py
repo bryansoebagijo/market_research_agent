@@ -18,10 +18,12 @@ from pydantic import BaseModel, Field
 from agent.llm import get_llm
 from agent.state import AgentState, Evidence, SubQuestion
 from agent.tools import (
+    ETF_TYPES,
     classify_ticker,
     crypto_protocol_fundamentals,
     crypto_snapshot,
     crypto_technicals,
+    etf_flows,
     fetch_news,
     stock_earnings,
     stock_fundamentals,
@@ -79,6 +81,16 @@ def _gather(
         elif focus == "fundamentals" and kind == "crypto":
             # Crypto's analogue: protocol revenue and TVL for DeFi tokens.
             record(t, crypto_protocol_fundamentals(t))
+            # BTC and ETH have no protocol revenue, so the call above correctly reports
+            # that revenue-based valuation doesn't apply — and leaves nothing to weigh.
+            # Spot ETF demand is the fundamental they do have, so it's added here rather
+            # than requiring the planner to have thought to ask for it separately. Only
+            # for those two: appending "AAVE has no US spot ETF" to every DeFi token's
+            # fundamentals would be noise, not an answer.
+            if t.upper() in ETF_TYPES:
+                record(t, etf_flows(t))
+        elif focus == "flows":
+            record(t, etf_flows(t))
         elif focus == "earnings" and kind == "stock":
             record(t, stock_earnings(t))
 

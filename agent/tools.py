@@ -374,6 +374,244 @@ def crypto_protocol_fundamentals(symbol: str) -> dict:
         return {"text": f"Protocol data unavailable for {sym} ({exc}).", "source": src}
 
 
+# --- US spot ETF flows (BTC and ETH) ---
+
+# Flows into the US spot BTC and ETH ETFs, from SoSoValue's public API.
+#
+# This source was chosen after the obvious ones turned out to be closed: DefiLlama's ETF
+# data sits behind a paid plan (HTTP 402), and Farside — the figure most outlets quote —
+# is behind bot protection that this project will not try to defeat. SoSoValue serves the
+# same numbers openly, with no key and no browser impersonation.
+#
+# Both endpoints are POST, not GET, which is worth knowing: a GET probe answers 405 Method
+# Not Allowed, which looks like a dead endpoint and is how this source gets missed.
+#
+# Why this belongs in the agent's toolkit: a spot ETF buys real coins, so a flow is actual
+# demand arriving, unlike open interest, which is leverage and can unwind without a coin
+# changing hands. For BTC and ETH it is the closest thing to a demand fundamental — which
+# matters because `crypto_protocol_fundamentals` correctly reports that they have no
+# protocol revenue, and that would otherwise leave the analyst with nothing to weigh.
+_SOSOVALUE = "https://api.sosovalue.xyz/openapi/v2/etf/"
+
+ETF_TYPES = {"BTC": "us-btc-spot", "ETH": "us-eth-spot"}
+
+# How many of the last N sessions were net buying. One day's flow is noise; persistence
+# across a month is the part an analyst can actually reason about.
+ETF_PERSISTENCE_SESSIONS = 20
+
+
+def _sosovalue(endpoint: str, etf_type: str):
+    """POST to SoSoValue and unwrap its envelope, raising on a non-zero code.
+
+    Errors arrive in the body with HTTP 200, so the status code alone never reveals them.
+    Raising here means an endpoint that starts demanding a key surfaces as a clear message
+    rather than as empty data.
+    """
+    r = httpx.post(_SOSOVALUE + endpoint, json={"type": etf_type},
+                   timeout=30.0, headers={"User-Agent": "markets-research-agent"})
+    r.raise_for_status()
+    body = r.json()
+    if str(body.get("code")) != "0":
+        detail = body.get("msg") or f"code {body.get('code')}"
+        raise RuntimeError(f"SoSoValue: {detail}")
+    return body.get("data")
+
+
+def _soso_value(field) -> float | None:
+    """Pull the number out of SoSoValue's {value, lastUpdateDate, status} wrapper."""
+    return _num((field or {}).get("value")) if isinstance(field, dict) else _num(field)
+
+
+def etf_flow_data(asset: str = "BTC", days: int = 90) -> dict:
+    """Daily net flows into the US spot ETFs for BTC or ETH, plus the per-fund split.
+
+    `days` trims the returned history; the API always sends about 300 rows.
+
+    Rows are TRADING days — weekends and US market holidays are simply absent, not zero —
+    so summing the last five rows means the last five sessions, not the last calendar week.
+    That also means the newest row is normally yesterday's session, which is why `as_of` is
+    reported rather than assumed to be today.
+    """
+    asset = asset.upper()
+    etf_type = ETF_TYPES.get(asset)
+    if not etf_type:
+        raise ValueError(f"No US spot ETF series for {asset}")
+
+    history = _sosovalue("historicalInflowChart", etf_type) or []
+    rows = sorted(
+        (
+            {
+                "date": r.get("date"),
+                "net_flow": _num(r.get("totalNetInflow")),
+                "net_assets": _num(r.get("totalNetAssets")),
+                "cum_flow": _num(r.get("cumNetInflow")),
+                "traded": _num(r.get("totalValueTraded")),
+            }
+            for r in history
+            if r.get("date")
+        ),
+        key=lambda r: r["date"],
+    )
+    flows = [r for r in rows if r["net_flow"] is not None]
+
+    def window(n: int) -> float | None:
+        return sum(r["net_flow"] for r in flows[-n:]) if len(flows) >= n else None
+
+    # The headline figures come from the same history that draws the chart, so the two can
+    # never disagree. The metrics endpoint carries its own slightly different cumulative
+    # total (a timing difference of a few basis points), and mixing the two sources would
+    # put a number beside a chart that contradicts it.
+    latest = flows[-1] if flows else {}
+
+    recent = flows[-ETF_PERSISTENCE_SESSIONS:]
+    positive = sum(1 for r in recent if r["net_flow"] > 0)
+    # Summed over the sessions actually counted, so it always agrees with
+    # sessions_counted/sessions_positive. `flow_20d` stays strict (None on a short
+    # series) because a dashboard metric labelled "last 20" must either mean 20 or say
+    # nothing — but prose built on that None would read a missing window as zero flow
+    # and announce selling that never happened.
+    flow_counted = sum(r["net_flow"] for r in recent) if recent else None
+
+    # Fund-level detail is only on the metrics endpoint, and it's the part that stops a
+    # headline misleading: a big legacy outflow can mask real buying everywhere else.
+    funds, share_of_mcap, holdings = [], None, None
+    try:
+        metrics = _sosovalue("currentEtfDataMetrics", etf_type) or {}
+        share_of_mcap = _soso_value(metrics.get("totalNetAssetsPercentage"))
+        holdings = _soso_value(metrics.get("totalTokenHoldings"))
+        for f in metrics.get("list") or []:
+            funds.append({
+                "ticker": (f.get("ticker") or "").strip(),
+                "institute": (f.get("institute") or "").strip(),
+                "fee": _soso_value(f.get("fee")),
+                "net_assets": _soso_value(f.get("netAssets")),
+                "net_flow": _soso_value(f.get("dailyNetInflow")),
+                "cum_flow": _soso_value(f.get("cumNetInflow")),
+            })
+        funds.sort(key=lambda f: f["net_assets"] or 0, reverse=True)
+    except Exception:  # noqa: BLE001 - the breakdown is a bonus; the series is the point
+        pass
+
+    return {
+        "asset": asset,
+        "as_of": latest.get("date"),
+        "daily": rows[-days:],
+        "latest_flow": latest.get("net_flow"),
+        "flow_5d": window(5),
+        "flow_20d": window(ETF_PERSISTENCE_SESSIONS),
+        "flow_counted": flow_counted,
+        "sessions_counted": len(recent),
+        "sessions_positive": positive,
+        "net_assets": latest.get("net_assets"),
+        "cum_flow": latest.get("cum_flow"),
+        # A fraction from the API (0.064), shown as a percentage by the UI.
+        "share_of_market_cap": share_of_mcap,
+        "token_holdings": holdings,
+        "funds": funds,
+        "source": "SoSoValue",
+    }
+
+
+def _flow_money(value) -> str:
+    """Compact signed dollars for prose: +$1.23B, -$45.6M."""
+    n = _num(value)
+    if n is None:
+        return "n/a"
+    sign = "-" if n < 0 else "+"
+    n = abs(n)
+    for cutoff, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if n >= cutoff:
+            return f"{sign}${n / cutoff:.2f}{suffix}"
+    return f"{sign}${n:,.0f}"
+
+
+def etf_flows(symbol: str) -> dict:
+    """US spot ETF demand for BTC or ETH, written for the analyst to reason about.
+
+    Only BTC and ETH have US spot ETFs. For anything else this says so plainly rather
+    than implying the absence of flows is itself a bearish signal — a token with no ETF
+    isn't failing this test, it simply doesn't take it.
+    """
+    src = "SoSoValue"
+    sym = symbol.upper()
+    if sym not in ETF_TYPES:
+        return {
+            "text": f"{sym} has no US spot ETF, so there are no fund flows to read. "
+                    f"Only BTC and ETH have one; this is not a negative signal for "
+                    f"{sym}, just a metric that does not apply.",
+            "source": src,
+            "data": {"has_etf": False},
+        }
+
+    try:
+        d = etf_flow_data(sym, days=ETF_PERSISTENCE_SESSIONS)
+    except Exception as exc:  # noqa: BLE001
+        return {"text": f"{sym}: ETF flow data unavailable ({exc}).", "source": src}
+
+    counted, positive = d["sessions_counted"], d["sessions_positive"]
+    month, week = d["flow_counted"] or 0, d["flow_5d"] or 0
+    direction = "bought" if month > 0 else "sold"
+
+    lines = [
+        f"US spot {sym} ETFs, latest session {d['as_of']}: "
+        f"{_flow_money(d['latest_flow'])} net flow.",
+        f"Over the last {counted} trading sessions: {_flow_money(month)} net, positive "
+        f"on {positive} of {counted} — so on balance these funds have {direction} over "
+        f"the past month.",
+    ]
+
+    # The verdict above covers a month, and the most recent week can run the other way.
+    # Stating that as a turn is the useful read; letting the two figures sit side by side
+    # without it invites the sentence to be read as describing whichever number is nearer.
+    if week and month and (week > 0) != (month > 0):
+        lines.append(
+            f"The last 5 sessions run the other way at {_flow_money(week)}, so the "
+            f"recent trend has turned against the month."
+        )
+    else:
+        lines.append(f"The last 5 sessions: {_flow_money(week)}, the same direction.")
+
+    if d["token_holdings"] and d["share_of_market_cap"]:
+        lines.append(
+            f"They now hold {d['token_holdings']:,.0f} {sym} "
+            f"({d['share_of_market_cap'] * 100:.1f}% of supply), "
+            f"{_flow_money(d['net_assets']).lstrip('+')} in assets, "
+            f"{_flow_money(d['cum_flow'])} cumulative since launch."
+        )
+
+    # A single legacy fund in long-run redemption can drag the headline negative while
+    # every other fund is taking money in. Saying so stops the analyst reading one number
+    # as the whole market's verdict.
+    bleeding = [f for f in d["funds"] if (f["cum_flow"] or 0) < 0]
+    if bleeding:
+        worst = min(bleeding, key=lambda f: f["cum_flow"])
+        lines.append(
+            f"Note {worst['ticker']} ({worst['institute']}) has seen "
+            f"{_flow_money(worst['cum_flow'])} since launch, so headline net flows "
+            f"understate buying across the newer funds."
+        )
+
+    lines.append(
+        "Flows are US trading sessions only and are reported with a lag, so the newest "
+        "figure is normally the previous business day. They measure fund demand, not "
+        "total market demand."
+    )
+
+    return {
+        "text": " ".join(lines),
+        "source": src,
+        "data": {
+            "has_etf": True,
+            "etf_flow_latest": d["latest_flow"],
+            "etf_flow_5d": d["flow_5d"],
+            "etf_flow_20d": d["flow_counted"],
+            "etf_sessions_positive": positive,
+            "etf_sessions_counted": counted,
+            "etf_share_of_supply": d["share_of_market_cap"],
+        },
+    }
+
+
 @lru_cache(maxsize=64)
 def stock_snapshot(symbol: str) -> dict:
     """Current price + daily change + 52-week range for a stock, from Twelve Data."""

@@ -31,7 +31,8 @@ class SubQuestion(BaseModel):
     focus: str = Field(
         description="What kind of data answers it: 'price', 'technicals', "
         "'fundamentals' (valuation ratios), 'earnings' (quarterly results: EPS vs "
-        "estimates, revenue growth, margins), 'news', or 'macro'."
+        "estimates, revenue growth, margins), 'flows' (US spot ETF demand — BTC and "
+        "ETH only), 'news', or 'macro'."
     )
     tickers: list[str] = Field(
         default_factory=list,
