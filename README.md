@@ -1,5 +1,7 @@
 # Markets Research Analyst — a LangGraph agent
 
+[![Tests](https://github.com/bryansoebagijo/market_research_agent/actions/workflows/tests.yml/badge.svg)](https://github.com/bryansoebagijo/market_research_agent/actions/workflows/tests.yml)
+
 A multi-step research agent for **crypto and US stocks**. Ask it a markets question and
 it plans the research, gathers live evidence (price, computed technicals, news, macro),
 **critiques its own coverage and loops back to fill gaps**, then writes a **cited,
@@ -260,6 +262,24 @@ and the parser read the "b" of "by" as a scale suffix. The LLM judge scored that
 five million — a useful reminder that eval tooling needs testing as much as the thing it
 evaluates. `tests/test_numeric_check.py` now pins those cases (14 tests; run it with
 `python tests/test_numeric_check.py`).
+
+### Tests
+
+```bash
+python scripts/run_tests.py             # the whole suite
+python scripts/run_tests.py --offline   # the same, with every outbound socket refused
+python tests/test_numeric_check.py      # one file, same as always
+```
+
+78 tests across five files. Each file is self-running with its own exit code, so there's
+no test framework to install and one file behaves the same alone as in the suite; the
+runner just executes each in its own subprocess.
+
+The suite needs **no network and no API keys** — `config.py` defaults every setting to
+empty — and `--offline` enforces that rather than trusting it. That matters more than it
+sounds: a test that quietly starts calling a live API still passes on a laptop, then
+fails CI during somebody else's outage. [GitHub Actions](.github/workflows/tests.yml)
+runs the offline suite on 3.11 and 3.13 for every push.
 
 The judge uses a **different model** from the one that produced the output. Set
 `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` and it becomes genuinely provider-independent;
